@@ -3,7 +3,7 @@ use std::{
     io::{self, Read, Write},
     path::{Path, PathBuf},
     process::ExitCode,
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
 use clap::Parser;
@@ -85,7 +85,8 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
 
-        let any_would_change = AtomicBool::new(false);
+        let total = files.len();
+        let changed = AtomicUsize::new(0);
         let any_error = AtomicBool::new(false);
 
         files
@@ -93,7 +94,7 @@ fn main() -> ExitCode {
             .for_each(|path| match format_file(path, &args, &config) {
                 Ok(would_change) => {
                     if would_change {
-                        any_would_change.store(true, Ordering::Relaxed);
+                        changed.fetch_add(1, Ordering::Relaxed);
                     }
                 }
                 Err(e) => {
@@ -102,10 +103,26 @@ fn main() -> ExitCode {
                 }
             });
 
+        // Print summary
+        let changed_count = changed.load(Ordering::Relaxed);
+        if args.check {
+            if changed_count > 0 {
+                eprintln!(
+                    "{changed_count} of {total} file{} would be reformatted",
+                    if total == 1 { "" } else { "s" }
+                );
+            }
+        } else if changed_count > 0 {
+            eprintln!(
+                "Formatted {changed_count} of {total} file{}",
+                if total == 1 { "" } else { "s" }
+            );
+        }
+
         if any_error.load(Ordering::Relaxed) {
             return ExitCode::from(2);
         }
-        if args.check && any_would_change.load(Ordering::Relaxed) {
+        if args.check && changed_count > 0 {
             return ExitCode::from(1);
         }
     }
