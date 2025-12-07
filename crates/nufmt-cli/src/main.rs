@@ -14,9 +14,9 @@ use rayon::prelude::*;
 #[derive(Parser, Debug)]
 #[command(name = "nufmt", version, about)]
 struct Args {
-    /// Files to format (reads from stdin if none provided)
+    /// Files or glob patterns to format (reads from stdin if none provided)
     #[arg()]
-    files: Vec<PathBuf>,
+    patterns: Vec<String>,
 
     /// Check if files are formatted without modifying them
     #[arg(long)]
@@ -58,7 +58,7 @@ fn main() -> ExitCode {
         }
     };
 
-    if args.stdin || args.files.is_empty() {
+    if args.stdin || args.patterns.is_empty() {
         match format_stdin(&args, &config) {
             Ok(needs_formatting) => {
                 if args.check && needs_formatting {
@@ -71,10 +71,24 @@ fn main() -> ExitCode {
             }
         }
     } else {
+        // Expand glob patterns to file paths
+        let files = match expand_patterns(&args.patterns) {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("error: {e}");
+                return ExitCode::from(2);
+            }
+        };
+
+        if files.is_empty() {
+            eprintln!("error: no files matched the given patterns");
+            return ExitCode::from(2);
+        }
+
         let any_would_change = AtomicBool::new(false);
         let any_error = AtomicBool::new(false);
 
-        args.files
+        files
             .par_iter()
             .for_each(|path| match format_file(path, &args, &config) {
                 Ok(would_change) => {
@@ -144,6 +158,33 @@ fn find_config_file() -> Option<PathBuf> {
             return None;
         }
     }
+}
+
+/// Expand glob patterns to file paths.
+///
+/// If a pattern contains no glob characters, it's treated as a literal path.
+/// Only returns files (not directories).
+fn expand_patterns(patterns: &[String]) -> Result<Vec<PathBuf>, Error> {
+    let mut files = Vec::new();
+
+    for pattern in patterns {
+        // Check if pattern contains glob characters
+        if pattern.contains('*') || pattern.contains('?') || pattern.contains('[') {
+            // Expand as glob pattern
+            for entry in glob::glob(pattern)? {
+                match entry {
+                    Ok(path) if path.is_file() => files.push(path),
+                    Ok(_) => {} // Skip directories
+                    Err(e) => eprintln!("warning: {e}"),
+                }
+            }
+        } else {
+            // Treat as literal path
+            files.push(PathBuf::from(pattern));
+        }
+    }
+
+    Ok(files)
 }
 
 /// Format source code from stdin.
@@ -253,6 +294,8 @@ enum Error {
     Format(FormatError),
     /// Configuration file error.
     Config { path: PathBuf, source: String },
+    /// Glob pattern error.
+    Glob(glob::PatternError),
 }
 
 impl std::fmt::Display for Error {
@@ -263,6 +306,7 @@ impl std::fmt::Display for Error {
             Self::Config { path, source } => {
                 write!(f, "config error in {}: {source}", path.display())
             }
+            Self::Glob(e) => write!(f, "invalid glob pattern: {e}"),
         }
     }
 }
@@ -276,6 +320,12 @@ impl From<io::Error> for Error {
 impl From<FormatError> for Error {
     fn from(e: FormatError) -> Self {
         Self::Format(e)
+    }
+}
+
+impl From<glob::PatternError> for Error {
+    fn from(e: glob::PatternError) -> Self {
+        Self::Glob(e)
     }
 }
 
@@ -332,7 +382,7 @@ mod tests {
     #[test]
     fn test_load_config_defaults() {
         let args = Args {
-            files: vec![],
+            patterns: vec![],
             check: false,
             stdin: false,
             config: None,
@@ -368,7 +418,7 @@ mod tests {
         fs::write(&file_path, "ls|sort-by name").unwrap();
 
         let args = Args {
-            files: vec![file_path.clone()],
+            patterns: vec![file_path.display().to_string()],
             check: false,
             stdin: false,
             config: None,
@@ -393,7 +443,7 @@ mod tests {
         fs::write(&file_path, "ls|sort-by name").unwrap();
 
         let args = Args {
-            files: vec![file_path.clone()],
+            patterns: vec![file_path.display().to_string()],
             check: true, // Check mode - don't modify
             stdin: false,
             config: None,
@@ -418,7 +468,7 @@ mod tests {
         fs::write(&file_path, "ls | sort-by name\n").unwrap();
 
         let args = Args {
-            files: vec![file_path.clone()],
+            patterns: vec![file_path.display().to_string()],
             check: false,
             stdin: false,
             config: None,

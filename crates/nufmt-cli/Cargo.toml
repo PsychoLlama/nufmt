@@ -15,6 +15,7 @@ path = "src/main.rs"
 
 [dependencies]
 clap.workspace = true
+glob.workspace = true
 nufmt.workspace = true
 rayon.workspace = true
 serde.workspace = true

@@ -13,6 +13,7 @@ categories = ["command-line-utilities", "development-tools"]
 
 [workspace.dependencies]
 clap = { version = "4", features = ["derive"] }
+glob = "0.3"
 nu-cmd-lang = "0.105"
 nu-command = "0.105"
 nu-parser = "0.105"
