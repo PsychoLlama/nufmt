@@ -1,0 +1,21 @@
+[package]
+name = "nufmt-cli"
+description = "A code formatter for Nushell"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[[bin]]
+name = "nufmt"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+nufmt.workspace = true
+
+[lints]
+workspace = true
