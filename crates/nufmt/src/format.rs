@@ -23,6 +23,48 @@ impl std::fmt::Display for FormatError {
 
 impl std::error::Error for FormatError {}
 
+/// Debug token output for Nushell source code.
+///
+/// Returns a string showing how the parser tokenizes the source.
+#[must_use]
+pub fn debug_tokens(source: &str) -> String {
+    use std::fmt::Write;
+
+    let engine_state = create_default_context();
+    let mut working_set = StateWorkingSet::new(&engine_state);
+    let block = parse(&mut working_set, None, source.as_bytes(), false);
+    let flattened = flatten_block(&working_set, &block);
+
+    let mut output = format!("Source: {source:?} (len={})\n\nTokens:\n", source.len());
+    let mut last_end = 0;
+
+    for (span, shape) in &flattened {
+        if span.start > last_end && span.start <= source.len() {
+            let gap = &source[last_end..span.start];
+            if !gap.is_empty() {
+                let _ = writeln!(output, "  GAP: {gap:?}");
+            }
+        }
+        if span.end <= source.len() {
+            let token = &source[span.start..span.end];
+            let _ = writeln!(output, "  {shape:?}: {token:?}");
+        } else {
+            let _ = writeln!(
+                output,
+                "  {shape:?}: <out of bounds {}-{}>",
+                span.start, span.end
+            );
+        }
+        last_end = span.end;
+    }
+
+    if last_end < source.len() {
+        let _ = writeln!(output, "  TRAILING: {:?}", &source[last_end..]);
+    }
+
+    output
+}
+
 /// Format Nushell source code.
 ///
 /// Returns the formatted source code.
@@ -230,18 +272,35 @@ impl<'a> Formatter<'a> {
         let has_open = trimmed.starts_with('{');
         let has_close = trimmed.ends_with('}');
 
-        // Extract content between braces
+        // Check for closure parameters: {|params| or {|params|
+        let (params, inner) = if has_open {
+            let after_brace = token.trim_start().strip_prefix('{').unwrap_or("");
+            if after_brace.trim_start().starts_with('|') {
+                // Find closing pipe for parameters
+                let param_start = after_brace.find('|').unwrap_or(0);
+                let rest = &after_brace[param_start + 1..];
+                rest.find('|').map_or((None, after_brace), |param_end| {
+                    let params = &after_brace[..param_start + param_end + 2];
+                    let inner = &rest[param_end + 1..];
+                    (Some(params.trim()), inner)
+                })
+            } else {
+                (None, after_brace)
+            }
+        } else if has_close {
+            (None, token.trim_end().strip_suffix('}').unwrap_or(""))
+        } else {
+            (None, "")
+        };
+
+        // For closing-only tokens, handle separately
         let inner = if has_open && has_close {
             trimmed
                 .strip_prefix('{')
                 .and_then(|s| s.strip_suffix('}'))
                 .unwrap_or("")
-        } else if has_open {
-            token.trim_start().strip_prefix('{').unwrap_or("")
-        } else if has_close {
-            token.trim_end().strip_suffix('}').unwrap_or("")
         } else {
-            ""
+            inner
         };
 
         // Opening brace
@@ -253,11 +312,18 @@ impl<'a> Formatter<'a> {
                 self.write_indent();
             }
             self.push_char('{');
+
+            // Write closure parameters if present
+            if let Some(p) = params {
+                self.push_str(p);
+            }
+
             self.indent_level += 1;
 
-            // Check if there's meaningful content after the brace
+            // Check if there's meaningful content after the brace/params
             let first_line = inner.lines().next().unwrap_or("");
-            if first_line.trim().is_empty() || first_line.trim().starts_with('#') {
+            let first_trimmed = first_line.trim();
+            if first_trimmed.is_empty() || first_trimmed.starts_with('#') {
                 self.push_newline();
             } else {
                 self.push_char(' ');

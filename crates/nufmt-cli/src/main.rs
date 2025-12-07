@@ -6,7 +6,7 @@ use std::{
 };
 
 use clap::Parser;
-use nufmt::{Config, FormatError, format_source};
+use nufmt::{Config, FormatError, debug_tokens, format_source};
 
 /// A code formatter for Nushell
 #[derive(Parser, Debug)]
@@ -23,10 +23,25 @@ struct Args {
     /// Read from stdin, write to stdout
     #[arg(long)]
     stdin: bool,
+
+    /// Debug: show parser tokens instead of formatting
+    #[arg(long, hide = true)]
+    debug_tokens: bool,
 }
 
 fn main() -> ExitCode {
     let args = Args::parse();
+
+    // Handle debug tokens mode
+    if args.debug_tokens {
+        let mut source = String::new();
+        if let Err(e) = io::stdin().read_to_string(&mut source) {
+            eprintln!("error: {e}");
+            return ExitCode::from(2);
+        }
+        print!("{}", debug_tokens(&source));
+        return ExitCode::SUCCESS;
+    }
 
     if args.stdin || args.files.is_empty() {
         match format_stdin(&args) {
