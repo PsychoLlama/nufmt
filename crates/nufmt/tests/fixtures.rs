@@ -36,3 +36,8 @@ fn test_fixture_blocks() {
 fn test_fixture_variables() {
     test_fixture("variables");
 }
+
+#[test]
+fn test_fixture_comments() {
+    test_fixture("comments");
+}

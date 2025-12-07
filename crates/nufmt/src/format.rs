@@ -75,9 +75,14 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    fn format(mut self, flattened: &[(Span, FlatShape)]) -> String {
+    fn format(mut self, flattened: &[(Span, FlatShape)], source_len: usize) -> String {
         for (span, shape) in flattened {
             self.process_token(*span, shape);
+        }
+
+        // Handle trailing content (comments after last token)
+        if self.last_end < source_len {
+            self.process_gap(source_len);
         }
 
         // Ensure trailing newline
@@ -144,49 +149,94 @@ impl<'a> Formatter<'a> {
     fn process_gap(&mut self, next_start: usize) {
         let gap = &self.source[self.last_end..next_start];
 
-        // Check for newlines first
-        let newline_count = gap.chars().filter(|&c| c == '\n').count();
+        // Process each line in the gap to handle comments and newlines
+        let mut lines = gap.split('\n').peekable();
+        let mut first_line = true;
 
-        if newline_count > 0 {
-            // Preserve at most one blank line
-            let lines_to_add = newline_count.min(2);
-            for _ in 0..lines_to_add {
+        while let Some(line) = lines.next() {
+            let trimmed = line.trim();
+            let has_more_lines = lines.peek().is_some();
+
+            // Check for comment
+            if let Some(comment_start) = trimmed.find('#') {
+                let comment = &trimmed[comment_start..];
+
+                if first_line && !self.line_start {
+                    // Inline comment on same line - add space before
+                    if !self.output.ends_with(' ') {
+                        self.push_char(' ');
+                    }
+                } else if self.line_start {
+                    self.write_indent();
+                    self.line_start = false;
+                }
+
+                // Handle content before the comment (like = in let)
+                let before_comment = trimmed[..comment_start].trim();
+                if !before_comment.is_empty() {
+                    if !self.output.ends_with(' ') && !self.line_start {
+                        self.push_char(' ');
+                    }
+                    self.push_str(before_comment);
+                    self.push_char(' ');
+                }
+
+                self.push_str(comment);
+
+                if has_more_lines {
+                    self.push_newline();
+                }
+            } else if !trimmed.is_empty() {
+                // Non-comment, non-whitespace content (like = in let)
+                if !self.output.is_empty() && !self.line_start && !self.output.ends_with(' ') {
+                    self.push_char(' ');
+                }
+                if self.line_start {
+                    self.write_indent();
+                    self.line_start = false;
+                }
+                self.push_str(trimmed);
+                if line.ends_with(' ') || line.ends_with('\t') || has_more_lines {
+                    self.push_char(' ');
+                }
+            } else if has_more_lines {
+                // Empty line (just newline)
                 self.push_newline();
+            } else if !first_line {
+                // Trailing part after last newline but no content
+                // Don't add space, newline already happened
+            } else if !gap.is_empty() && !self.line_start {
+                // Just whitespace on single line - add space if not already present
+                if !self.output.ends_with(' ') {
+                    self.push_char(' ');
+                }
             }
-            return;
-        }
 
-        // Check for non-whitespace content in gap (e.g., = in let statements)
-        let gap_content = gap.trim();
-        if !gap_content.is_empty() {
-            // There's meaningful content in the gap - preserve it with spacing
-            if !self.output.is_empty() && !self.line_start && !self.output.ends_with(' ') {
-                self.push_char(' ');
-            }
-            if self.line_start {
-                self.write_indent();
-                self.line_start = false;
-            }
-            self.push_str(gap_content);
-            // Add space after gap content if there was whitespace after it originally
-            if gap.ends_with(' ') || gap.ends_with('\t') {
-                self.push_char(' ');
-            }
-            return;
-        }
-
-        // Just whitespace - add single space if not at line start
-        if !self.output.is_empty() && !self.line_start && !gap.is_empty() {
-            self.push_char(' ');
+            first_line = false;
         }
     }
 
     fn process_block_token(&mut self, token: &str) {
         let trimmed = token.trim();
+        let has_open = trimmed.starts_with('{');
+        let has_close = trimmed.ends_with('}');
+
+        // Extract content between braces
+        let inner = if has_open && has_close {
+            trimmed
+                .strip_prefix('{')
+                .and_then(|s| s.strip_suffix('}'))
+                .unwrap_or("")
+        } else if has_open {
+            token.trim_start().strip_prefix('{').unwrap_or("")
+        } else if has_close {
+            token.trim_end().strip_suffix('}').unwrap_or("")
+        } else {
+            ""
+        };
 
         // Opening brace
-        if trimmed.starts_with('{') {
-            // Add space before brace if not at line start
+        if has_open {
             if !self.line_start && !self.output.ends_with(' ') {
                 self.push_char(' ');
             }
@@ -196,9 +246,9 @@ impl<'a> Formatter<'a> {
             self.push_char('{');
             self.indent_level += 1;
 
-            // Check if there's content after the brace on the same line
-            let after_brace = token.trim_start().strip_prefix('{').unwrap_or("");
-            if after_brace.contains('\n') || after_brace.trim().is_empty() {
+            // Check if there's meaningful content after the brace
+            let first_line = inner.lines().next().unwrap_or("");
+            if first_line.trim().is_empty() || first_line.trim().starts_with('#') {
                 self.push_newline();
             } else {
                 self.push_char(' ');
@@ -206,13 +256,25 @@ impl<'a> Formatter<'a> {
             }
         }
 
+        // Process inner content (may contain comments)
+        for line in inner.lines() {
+            let line_trimmed = line.trim();
+            if line_trimmed.is_empty() {
+                continue;
+            }
+
+            if self.line_start {
+                self.write_indent();
+            }
+            self.push_str(line_trimmed);
+            self.push_newline();
+        }
+
         // Closing brace
-        if trimmed.ends_with('}') {
+        if has_close {
             self.indent_level = self.indent_level.saturating_sub(1);
 
-            // Check if there's content before the brace
-            let before_brace = token.trim_end().strip_suffix('}').unwrap_or("");
-            if (before_brace.contains('\n') || self.line_start) && !self.output.ends_with('\n') {
+            if !self.output.ends_with('\n') {
                 self.push_newline();
             }
 
@@ -265,7 +327,7 @@ fn format_block(
 ) -> String {
     let flattened = flatten_block(working_set, block);
     let formatter = Formatter::new(source, config);
-    formatter.format(&flattened)
+    formatter.format(&flattened, source.len())
 }
 
 #[cfg(test)]
@@ -346,5 +408,29 @@ mod tests {
             newline_count > 1,
             "Expected multiple line breaks in: {result:?}"
         );
+    }
+
+    #[test]
+    fn test_line_comment() {
+        let source = "# this is a comment\nls";
+        let config = Config::default();
+        let result = format_source(source, &config).unwrap();
+        assert_eq!(result, "# this is a comment\nls\n");
+    }
+
+    #[test]
+    fn test_inline_comment() {
+        let source = "ls # list files";
+        let config = Config::default();
+        let result = format_source(source, &config).unwrap();
+        assert_eq!(result, "ls # list files\n");
+    }
+
+    #[test]
+    fn test_comment_in_block() {
+        let source = "if true {\n# inside block\necho hello\n}";
+        let config = Config::default();
+        let result = format_source(source, &config).unwrap();
+        assert_eq!(result, "if true {\n    # inside block\n    echo hello\n}\n");
     }
 }
