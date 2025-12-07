@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2025-12-07
+
 ### Added
 
 - Directory formatting: pass a directory to recursively format all `.nu` files
@@ -45,5 +47,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Parse error messages with source locations
 - Nix flake for installation and development
 
-[Unreleased]: https://github.com/psychollama/nufmt/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/psychollama/nufmt/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/psychollama/nufmt/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/psychollama/nufmt/releases/tag/v0.1.0
