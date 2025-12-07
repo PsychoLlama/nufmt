@@ -1,0 +1,173 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Release script for nufmt
+# Usage: bin/release [--dry-run] [--yes] <version>
+# Example: bin/release 0.2.0
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+NC='\033[0m' # No Color
+
+DRY_RUN=false
+YES=false
+
+die() {
+    echo -e "${RED}error:${NC} $1" >&2
+    exit 1
+}
+
+warn() {
+    echo -e "${YELLOW}warning:${NC} $1" >&2
+}
+
+info() {
+    echo -e "${GREEN}==>${NC} $1"
+}
+
+usage() {
+    echo "Usage: bin/release [--dry-run] [--yes] <version>"
+    echo ""
+    echo "Options:"
+    echo "  --dry-run  Validate everything but don't create/push the tag"
+    echo "  --yes      Skip confirmation prompt"
+    echo ""
+    echo "Example: bin/release 0.2.0"
+    echo "         bin/release --yes 0.2.0"
+    echo "         bin/release --dry-run 0.2.0"
+}
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --dry-run)
+            DRY_RUN=true
+            shift
+            ;;
+        --yes|-y)
+            YES=true
+            shift
+            ;;
+        --help|-h)
+            usage
+            exit 0
+            ;;
+        -*)
+            die "Unknown option: $1"
+            ;;
+        *)
+            VERSION="$1"
+            shift
+            ;;
+    esac
+done
+
+if [[ -z "${VERSION:-}" ]]; then
+    usage
+    exit 1
+fi
+
+TAG="v$VERSION"
+
+# Validate version format (semver)
+if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+    die "Invalid version format: $VERSION (expected semver like 1.2.3 or 1.2.3-beta.1)"
+fi
+
+# Check we're in the repo root
+if [[ ! -f "Cargo.toml" ]] || [[ ! -d ".git" ]]; then
+    die "Must be run from repository root"
+fi
+
+# Check for uncommitted changes
+if ! git diff --quiet || ! git diff --cached --quiet; then
+    die "Uncommitted changes detected. Commit or stash them first."
+fi
+
+# Check we're on main branch
+BRANCH=$(git branch --show-current)
+if [[ "$BRANCH" != "main" ]]; then
+    die "Must be on main branch (currently on: $BRANCH)"
+fi
+
+# Check main is up to date with origin
+git fetch origin main --quiet
+LOCAL=$(git rev-parse HEAD)
+REMOTE=$(git rev-parse origin/main)
+if [[ "$LOCAL" != "$REMOTE" ]]; then
+    die "Local main is not up to date with origin/main. Pull or push first."
+fi
+
+# Check tag doesn't already exist
+if git rev-parse "$TAG" >/dev/null 2>&1; then
+    die "Tag $TAG already exists"
+fi
+
+# Get current version from Cargo.toml
+CURRENT_VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+if [[ "$CURRENT_VERSION" != "$VERSION" ]]; then
+    die "Version mismatch: Cargo.toml has $CURRENT_VERSION but releasing $VERSION. Update Cargo.toml first."
+fi
+
+# Check CHANGELOG.md has an entry for this version
+if ! grep -q "^\## \[$VERSION\]" CHANGELOG.md; then
+    die "No changelog entry found for version $VERSION. Update CHANGELOG.md first."
+fi
+
+# Check CHANGELOG.md has a date for this version (not just the header)
+if ! grep -q "^\## \[$VERSION\] - [0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}" CHANGELOG.md; then
+    die "Changelog entry for $VERSION is missing a date. Format: ## [$VERSION] - YYYY-MM-DD"
+fi
+
+# Check the comparison link exists at the bottom
+if ! grep -q "^\[$VERSION\]: https://" CHANGELOG.md; then
+    die "Missing comparison link for $VERSION at bottom of CHANGELOG.md"
+fi
+
+# Run all checks
+info "Running checks..."
+if ! just check; then
+    die "Checks failed. Fix issues before releasing."
+fi
+
+# Build to ensure it compiles in release mode
+info "Building release binary..."
+if ! just build; then
+    die "Release build failed."
+fi
+
+# Summary
+echo ""
+info "Ready to release $TAG"
+echo "  Current commit: $(git rev-parse --short HEAD)"
+echo "  Changelog entry: found"
+echo "  All checks: passed"
+echo ""
+
+if [[ "$DRY_RUN" == true ]]; then
+    info "Dry run complete. No tag created."
+    exit 0
+fi
+
+# Confirm
+if [[ "$YES" != true ]]; then
+    read -p "Create and push tag $TAG? [y/N] " -n 1 -r
+    echo ""
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo "Aborted."
+        exit 1
+    fi
+fi
+
+# Create and push tag
+info "Creating tag $TAG..."
+git tag -a "$TAG" -m "Release $VERSION"
+
+info "Pushing tag to origin..."
+git push origin "$TAG"
+
+echo ""
+info "Released $TAG!"
+echo "  GitHub Actions will now build and create the release."
+echo "  Watch progress: https://github.com/psychollama/nufmt/actions"
