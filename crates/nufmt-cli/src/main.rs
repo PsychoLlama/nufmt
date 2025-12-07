@@ -80,7 +80,7 @@ fn format_stdin(args: &Args) -> Result<bool, Error> {
 
     if args.check {
         if would_change {
-            eprintln!("stdin: would reformat");
+            print_diff("<stdin>", &source, &formatted);
         }
     } else {
         io::stdout().write_all(formatted.as_bytes())?;
@@ -98,13 +98,66 @@ fn format_file(path: &PathBuf, args: &Args) -> Result<bool, Error> {
 
     if args.check {
         if would_change {
-            eprintln!("{}: would reformat", path.display());
+            print_diff(&path.display().to_string(), &source, &formatted);
         }
     } else if would_change {
         fs::write(path, &formatted)?;
     }
 
     Ok(would_change)
+}
+
+fn print_diff(name: &str, original: &str, formatted: &str) {
+    eprintln!("--- {name}");
+    eprintln!("+++ {name} (formatted)");
+
+    let orig_lines: Vec<&str> = original.lines().collect();
+    let fmt_lines: Vec<&str> = formatted.lines().collect();
+
+    let mut i = 0;
+    let mut j = 0;
+
+    while i < orig_lines.len() || j < fmt_lines.len() {
+        // Find next difference
+        if i < orig_lines.len() && j < fmt_lines.len() && orig_lines[i] == fmt_lines[j] {
+            i += 1;
+            j += 1;
+            continue;
+        }
+
+        // Found a difference - print context
+        let context_start = i.saturating_sub(1);
+
+        // Print context line before if available
+        if context_start < i && context_start < orig_lines.len() {
+            eprintln!("@@ -{} +{} @@", context_start + 1, j.saturating_sub(1) + 1);
+            eprintln!(" {}", orig_lines[context_start]);
+        } else {
+            eprintln!("@@ -{} +{} @@", i + 1, j + 1);
+        }
+
+        // Print differing lines
+        while i < orig_lines.len()
+            && (j >= fmt_lines.len() || orig_lines[i] != fmt_lines[j])
+            && (j >= fmt_lines.len()
+                || i + 1 >= orig_lines.len()
+                || orig_lines[i + 1] != fmt_lines[j])
+        {
+            eprintln!("-{}", orig_lines[i]);
+            i += 1;
+        }
+
+        while j < fmt_lines.len()
+            && (i >= orig_lines.len() || orig_lines[i] != fmt_lines[j])
+            && (i >= orig_lines.len()
+                || j + 1 >= fmt_lines.len()
+                || orig_lines[i] != fmt_lines[j + 1])
+        {
+            eprintln!("+{}", fmt_lines[j]);
+            j += 1;
+        }
+    }
+    eprintln!();
 }
 
 #[derive(Debug)]
