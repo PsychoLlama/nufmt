@@ -91,6 +91,8 @@
             packages = [
               (pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml)
               pkgs.just
+              pkgs.nixfmt-rfc-style
+              pkgs.treefmt
             ];
           };
         }

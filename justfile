@@ -13,7 +13,7 @@ check:
 
 # Check formatting
 fmt:
-    cargo fmt --check
+    treefmt --fail-on-change
 
 # Run clippy lints
 lint:

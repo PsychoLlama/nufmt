@@ -6,7 +6,7 @@ Nushell code formatter. See `ref/plan.md` for implementation plan.
 
 - `just` - list all commands
 - `just check` - run all checks (fmt, lint, test)
-- `just fmt` - check formatting
+- `just fmt` - check formatting (uses treefmt for Rust and Nix)
 - `just lint` - run clippy
 - `just test` - run tests
 
