@@ -113,13 +113,17 @@ fn load_config(args: &Args) -> Result<Config, Error> {
     Ok(Config::default())
 }
 
-/// Load and parse a config file.
+/// Load, parse, and validate a config file.
 fn load_config_file(path: &Path) -> Result<Config, Error> {
     let content = fs::read_to_string(path).map_err(|e| Error::Config {
         path: path.to_path_buf(),
         source: e.to_string(),
     })?;
     let config: Config = toml::from_str(&content).map_err(|e| Error::Config {
+        path: path.to_path_buf(),
+        source: e.to_string(),
+    })?;
+    config.validate().map_err(|e| Error::Config {
         path: path.to_path_buf(),
         source: e.to_string(),
     })?;
