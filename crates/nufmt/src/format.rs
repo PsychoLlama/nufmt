@@ -131,6 +131,15 @@ impl<'a> Formatter<'a> {
             return;
         }
 
+        // Handle record/list delimiter tokens - normalize spacing
+        if matches!(shape, FlatShape::Record | FlatShape::List) {
+            self.process_gap(span.start);
+            self.process_delimiter_token(token);
+            self.last_end = span.end;
+            self.last_token = Some(token);
+            return;
+        }
+
         // Process gap between last token and this one
         self.process_gap(span.start);
 
@@ -286,6 +295,68 @@ impl<'a> Formatter<'a> {
         }
     }
 
+    fn process_delimiter_token(&mut self, token: &str) {
+        // Normalize spacing in record/list delimiters
+        // e.g., ",  " -> ", " and ":   " -> ": "
+        let trimmed = token.trim();
+
+        if self.line_start {
+            self.write_indent();
+        }
+
+        // Handle opening brackets
+        if trimmed == "{" || trimmed == "[" {
+            self.push_str(trimmed);
+            self.line_start = false;
+            return;
+        }
+
+        // Handle closing brackets
+        if trimmed == "}" || trimmed == "]" {
+            self.push_str(trimmed);
+            self.line_start = false;
+            return;
+        }
+
+        // Handle colon in records - normalize to ": "
+        if trimmed == ":" {
+            self.push_str(": ");
+            self.line_start = false;
+            return;
+        }
+
+        // Handle comma - normalize to ", "
+        if trimmed == "," {
+            self.push_str(", ");
+            self.line_start = false;
+            return;
+        }
+
+        // For multiline records, handle newlines
+        if token.contains('\n') {
+            for line in token.lines() {
+                let line_trimmed = line.trim();
+                if !line_trimmed.is_empty() {
+                    self.push_str(line_trimmed);
+                    if line_trimmed == ":" {
+                        self.push_char(' ');
+                    }
+                }
+            }
+            if token.ends_with('\n') {
+                self.push_newline();
+            }
+            return;
+        }
+
+        // Default: just write the trimmed token
+        self.push_str(trimmed);
+        if token.ends_with(' ') || token.ends_with('\t') {
+            self.push_char(' ');
+        }
+        self.line_start = false;
+    }
+
     fn write_indent(&mut self) {
         let indent_size = self.indent_level * self.config.indent_width;
         for _ in 0..indent_size {
@@ -432,5 +503,21 @@ mod tests {
         let config = Config::default();
         let result = format_source(source, &config).unwrap();
         assert_eq!(result, "if true {\n    # inside block\n    echo hello\n}\n");
+    }
+
+    #[test]
+    fn test_record_spacing() {
+        let source = "{a:1,  b:   2}";
+        let config = Config::default();
+        let result = format_source(source, &config).unwrap();
+        assert_eq!(result, "{a: 1, b: 2}\n");
+    }
+
+    #[test]
+    fn test_list_spacing() {
+        let source = "[1,  2,   3]";
+        let config = Config::default();
+        let result = format_source(source, &config).unwrap();
+        assert_eq!(result, "[1, 2, 3]\n");
     }
 }
