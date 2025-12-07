@@ -13,6 +13,7 @@ categories = ["command-line-utilities", "development-tools"]
 
 [workspace.dependencies]
 clap = { version = "4", features = ["derive"] }
+nu-cmd-lang = "0.104"
 nu-parser = "0.104"
 nu-protocol = "0.104"
 nufmt = { path = "crates/nufmt" }
