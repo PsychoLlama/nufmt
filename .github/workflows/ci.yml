@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: DeterminateSystems/nix-installer-action@v21
+
+      - uses: DeterminateSystems/magic-nix-cache-action@v13
+
+      - name: Run checks
+        run: nix develop --command just check
+
+  build:
+    name: Build
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: DeterminateSystems/nix-installer-action@v21
+
+      - uses: DeterminateSystems/magic-nix-cache-action@v13
+
+      - name: Build release binary
+        run: nix develop --command just build
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: nufmt-x86_64-linux
+          path: target/release/nufmt
+
+  release:
+    name: Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v6
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          cp artifacts/nufmt-x86_64-linux/nufmt release/nufmt-x86_64-linux
+          chmod +x release/nufmt-x86_64-linux
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            release/nufmt-x86_64-linux

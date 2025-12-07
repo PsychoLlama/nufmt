@@ -22,3 +22,7 @@ lint:
 # Run tests
 test:
     cargo test
+
+# Build release binary
+build:
+    cargo build --release
