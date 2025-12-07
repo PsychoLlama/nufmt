@@ -6,4 +6,4 @@ mod config;
 mod format;
 
 pub use config::Config;
-pub use format::{FormatError, debug_tokens, format_source};
+pub use format::{FormatError, SourceLocation, debug_tokens, format_source};

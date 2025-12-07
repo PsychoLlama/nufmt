@@ -13,22 +13,60 @@ fn create_engine_state() -> nu_protocol::engine::EngineState {
     add_shell_command_context(engine_state)
 }
 
+/// A source location (line and column).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourceLocation {
+    /// 1-indexed line number.
+    pub line: usize,
+    /// 1-indexed column number.
+    pub column: usize,
+}
+
 /// Errors that can occur during formatting.
 #[derive(Debug)]
 pub enum FormatError {
     /// The source code could not be parsed.
-    ParseError(String),
+    ParseError {
+        message: String,
+        location: Option<SourceLocation>,
+    },
 }
 
 impl std::fmt::Display for FormatError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::ParseError(msg) => write!(f, "parse error: {msg}"),
+            Self::ParseError { message, location } => {
+                if let Some(loc) = location {
+                    write!(f, "{}:{}: {message}", loc.line, loc.column)
+                } else {
+                    write!(f, "{message}")
+                }
+            }
         }
     }
 }
 
 impl std::error::Error for FormatError {}
+
+/// Compute line and column from a byte offset in source.
+fn offset_to_location(source: &str, offset: usize) -> SourceLocation {
+    let mut line = 1;
+    let mut col = 1;
+
+    for (i, c) in source.char_indices() {
+        if i >= offset {
+            break;
+        }
+        if c == '\n' {
+            line += 1;
+            col = 1;
+        } else {
+            col += 1;
+        }
+    }
+
+    SourceLocation { line, column: col }
+}
 
 /// Debug token output for Nushell source code.
 ///
@@ -89,14 +127,18 @@ pub fn format_source(source: &str, config: &Config) -> Result<String, FormatErro
 
     let block = parse(&mut working_set, None, source.as_bytes(), false);
 
-    // Check for parse errors
-    if !working_set.parse_errors.is_empty() {
-        let errors: Vec<String> = working_set
-            .parse_errors
-            .iter()
-            .map(ToString::to_string)
-            .collect();
-        return Err(FormatError::ParseError(errors.join(", ")));
+    // Check for parse errors - report the first one with location
+    if let Some(error) = working_set.parse_errors.first() {
+        let span = error.span();
+        let location = if span.start < source.len() {
+            Some(offset_to_location(source, span.start))
+        } else {
+            None
+        };
+        return Err(FormatError::ParseError {
+            message: error.to_string(),
+            location,
+        });
     }
 
     let formatted = format_block(&working_set, &block, source, config);
