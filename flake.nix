@@ -1,5 +1,5 @@
 {
-  description = "Development environment";
+  description = "A code formatter for Nushell";
 
   inputs = {
     rust-overlay.url = "github:oxalica/rust-overlay";
@@ -31,13 +31,32 @@
     in
 
     {
-      devShell = eachSystem (
-        system: pkgs:
-        pkgs.mkShell {
-          packages = [
-            (pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml)
-            pkgs.just
-          ];
+      packages = eachSystem (
+        system: pkgs: {
+          nufmt = pkgs.rustPlatform.buildRustPackage {
+            pname = "nufmt";
+            version = "0.1.0";
+            src = ./.;
+            cargoLock.lockFile = ./Cargo.lock;
+            meta = {
+              description = "A code formatter for Nushell";
+              homepage = "https://github.com/psychollama/nufmt";
+              license = lib.licenses.mit;
+              mainProgram = "nufmt";
+            };
+          };
+          default = self.packages.${system}.nufmt;
+        }
+      );
+
+      devShells = eachSystem (
+        system: pkgs: {
+          default = pkgs.mkShell {
+            packages = [
+              (pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml)
+              pkgs.just
+            ];
+          };
         }
       );
     };
