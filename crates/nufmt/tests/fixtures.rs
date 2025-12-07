@@ -46,3 +46,23 @@ fn test_fixture_comments() {
 fn test_fixture_complex() {
     test_fixture("complex");
 }
+
+#[test]
+fn test_fixture_empty() {
+    test_fixture("empty");
+}
+
+#[test]
+fn test_fixture_comments_only() {
+    test_fixture("comments_only");
+}
+
+#[test]
+fn test_fixture_deeply_nested() {
+    test_fixture("deeply_nested");
+}
+
+#[test]
+fn test_fixture_unicode() {
+    test_fixture("unicode");
+}
