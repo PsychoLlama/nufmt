@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Nix overlay for easier integration into NixOS/home-manager configurations
 
+### Fixed
+
+- Formatting no longer fails on unknown commands (plugins, custom commands not available at parse time)
+- Formatting no longer fails on type mismatches from unknown command output types
+
 ## [0.3.0] - 2025-12-07
 
 ### Added

@@ -102,11 +102,17 @@ impl std::fmt::Display for FormatError {
 
 impl std::error::Error for FormatError {}
 
-/// Check if a parse error is a resolution error (module/file not found).
+/// Check if a parse error is a resolution error (module/file/command not found).
 ///
 /// These errors don't indicate invalid syntax, just that a dependency
 /// couldn't be resolved at parse time. The formatter can still process
 /// the code since it's syntactically valid.
+///
+/// This includes:
+/// - Module/file resolution errors (use, source, etc.)
+/// - Unknown commands (plugins, custom commands not available at parse time)
+/// - Extra positional arguments (subcommands like `from jsonl` when plugin unavailable)
+/// - Type mismatches from unknown command output types (e.g., `| where` after unknown command)
 const fn is_resolution_error(error: &ParseError) -> bool {
     matches!(
         error,
@@ -119,6 +125,9 @@ const fn is_resolution_error(error: &ParseError) -> bool {
             | ParseError::SourcedFileNotFound(..)
             | ParseError::RegisteredFileNotFound(..)
             | ParseError::PluginNotFound { .. }
+            | ParseError::UnknownCommand(..)
+            | ParseError::ExtraPositional(..)
+            | ParseError::InputMismatch(..)
     )
 }
 
