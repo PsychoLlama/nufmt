@@ -5,7 +5,7 @@ use nu_command::add_shell_command_context;
 use nu_parser::{FlatShape, flatten_block, parse};
 use nu_protocol::{Span, engine::StateWorkingSet};
 
-use crate::Config;
+use crate::{Config, QuoteStyle};
 
 /// Create an engine state with all Nushell commands available for parsing.
 fn create_engine_state() -> nu_protocol::engine::EngineState {
@@ -253,6 +253,16 @@ impl<'a> Formatter<'a> {
         // Write indentation if at line start
         if self.line_start {
             self.write_indent();
+        }
+
+        // Handle string tokens - potentially convert quote style
+        if matches!(shape, FlatShape::String) {
+            let converted = self.convert_string_quotes(token);
+            self.push_str(&converted);
+            self.line_start = false;
+            self.last_end = span.end;
+            self.last_token = Some(token);
+            return;
         }
 
         // Write the token
@@ -540,6 +550,70 @@ impl<'a> Formatter<'a> {
         self.current_line_len = 0;
         self.line_start = true;
     }
+
+    /// Convert string quotes based on configured quote style.
+    ///
+    /// Returns the original string if:
+    /// - Quote style is Preserve
+    /// - String is already in preferred style
+    /// - Conversion would require adding escapes
+    fn convert_string_quotes(&self, token: &str) -> String {
+        match self.config.quote_style {
+            QuoteStyle::Preserve => token.to_string(),
+            QuoteStyle::Double => self.to_double_quotes(token),
+            QuoteStyle::Single => self.to_single_quotes(token),
+        }
+    }
+
+    /// Convert a string to double quotes if possible.
+    fn to_double_quotes(&self, token: &str) -> String {
+        // Already double-quoted
+        if token.starts_with('"') {
+            return token.to_string();
+        }
+
+        // Single-quoted string: 'content'
+        if let Some(content) = token.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')) {
+            // Can't convert if content contains unescaped double quotes
+            if content.contains('"') {
+                return token.to_string();
+            }
+            // Convert escapes: \' -> ', and add \" for any " (but we already checked there are none)
+            // In Nushell single quotes, \' is literal backslash-quote, not an escape
+            // Actually single quotes are raw - no escapes. So just wrap in double quotes.
+            // But we need to escape any backslash-n etc that would become escapes in double quotes
+            if content.contains('\\') {
+                // Content has backslashes that would be interpreted as escapes in double quotes
+                return token.to_string();
+            }
+            return format!("\"{content}\"");
+        }
+
+        token.to_string()
+    }
+
+    /// Convert a string to single quotes if possible.
+    fn to_single_quotes(&self, token: &str) -> String {
+        // Already single-quoted
+        if token.starts_with('\'') {
+            return token.to_string();
+        }
+
+        // Double-quoted string: "content"
+        if let Some(content) = token.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+            // Can't convert if content contains single quotes
+            if content.contains('\'') {
+                return token.to_string();
+            }
+            // Can't convert if content has escape sequences (they won't work in single quotes)
+            if content.contains('\\') {
+                return token.to_string();
+            }
+            return format!("'{content}'");
+        }
+
+        token.to_string()
+    }
 }
 
 fn format_block(
@@ -698,5 +772,33 @@ mod tests {
             result.contains("|x, y|"),
             "Should preserve closure params: {result}"
         );
+    }
+
+    #[test]
+    fn test_quote_style_single() {
+        let source = r#"echo "hello""#;
+        let mut config = Config::default();
+        config.quote_style = QuoteStyle::Single;
+        let result = format_source(source, &config).unwrap();
+        assert_eq!(result, "echo 'hello'\n");
+    }
+
+    #[test]
+    fn test_quote_style_double() {
+        let source = "echo 'hello'";
+        let mut config = Config::default();
+        config.quote_style = QuoteStyle::Double;
+        let result = format_source(source, &config).unwrap();
+        assert_eq!(result, "echo \"hello\"\n");
+    }
+
+    #[test]
+    fn test_quote_style_preserve_when_needed() {
+        // Can't convert to single quotes if string contains single quote
+        let source = r#"echo "it's""#;
+        let mut config = Config::default();
+        config.quote_style = QuoteStyle::Single;
+        let result = format_source(source, &config).unwrap();
+        assert_eq!(result, "echo \"it's\"\n");
     }
 }

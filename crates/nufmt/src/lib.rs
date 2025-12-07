@@ -5,5 +5,5 @@
 mod config;
 mod format;
 
-pub use config::Config;
+pub use config::{Config, QuoteStyle};
 pub use format::{FormatError, SourceLocation, debug_tokens, format_source};
