@@ -1,10 +1,17 @@
 use std::sync::Arc;
 
 use nu_cmd_lang::create_default_context;
+use nu_command::add_shell_command_context;
 use nu_parser::{FlatShape, flatten_block, parse};
 use nu_protocol::{Span, engine::StateWorkingSet};
 
 use crate::Config;
+
+/// Create an engine state with all Nushell commands available for parsing.
+fn create_engine_state() -> nu_protocol::engine::EngineState {
+    let engine_state = create_default_context();
+    add_shell_command_context(engine_state)
+}
 
 /// Errors that can occur during formatting.
 #[derive(Debug)]
@@ -30,7 +37,7 @@ impl std::error::Error for FormatError {}
 pub fn debug_tokens(source: &str) -> String {
     use std::fmt::Write;
 
-    let engine_state = create_default_context();
+    let engine_state = create_engine_state();
     let mut working_set = StateWorkingSet::new(&engine_state);
     let block = parse(&mut working_set, None, source.as_bytes(), false);
     let flattened = flatten_block(&working_set, &block);
@@ -45,13 +52,17 @@ pub fn debug_tokens(source: &str) -> String {
                 let _ = writeln!(output, "  GAP: {gap:?}");
             }
         }
-        if span.end <= source.len() {
+        if span.start <= span.end && span.end <= source.len() {
             let token = &source[span.start..span.end];
-            let _ = writeln!(output, "  {shape:?}: {token:?}");
+            let _ = writeln!(
+                output,
+                "  {shape:?}: {token:?} ({}-{})",
+                span.start, span.end
+            );
         } else {
             let _ = writeln!(
                 output,
-                "  {shape:?}: <out of bounds {}-{}>",
+                "  {shape:?}: <invalid span {}-{}>",
                 span.start, span.end
             );
         }
@@ -73,7 +84,7 @@ pub fn debug_tokens(source: &str) -> String {
 ///
 /// Returns an error if the source code cannot be parsed.
 pub fn format_source(source: &str, config: &Config) -> Result<String, FormatError> {
-    let engine_state = create_default_context();
+    let engine_state = create_engine_state();
     let mut working_set = StateWorkingSet::new(&engine_state);
 
     let block = parse(&mut working_set, None, source.as_bytes(), false);
@@ -136,6 +147,13 @@ impl<'a> Formatter<'a> {
     }
 
     fn process_token(&mut self, span: Span, shape: &FlatShape) {
+        // Skip tokens with overlapping or invalid spans (can happen with some command parsers)
+        let is_overlapping = span.start < self.last_end;
+        let is_invalid = span.start > span.end;
+        if is_overlapping || is_invalid {
+            return;
+        }
+
         let token = &self.source[span.start..span.end];
 
         // Handle block/closure shapes specially - they include braces with whitespace
