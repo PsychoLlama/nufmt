@@ -3,7 +3,7 @@ use std::sync::Arc;
 use nu_cmd_lang::create_default_context;
 use nu_command::add_shell_command_context;
 use nu_parser::{FlatShape, flatten_block, parse};
-use nu_protocol::{Span, engine::StateWorkingSet};
+use nu_protocol::{ParseError, Span, engine::StateWorkingSet};
 
 use crate::{Config, QuoteStyle};
 
@@ -47,6 +47,26 @@ impl std::fmt::Display for FormatError {
 }
 
 impl std::error::Error for FormatError {}
+
+/// Check if a parse error is a resolution error (module/file not found).
+///
+/// These errors don't indicate invalid syntax, just that a dependency
+/// couldn't be resolved at parse time. The formatter can still process
+/// the code since it's syntactically valid.
+const fn is_resolution_error(error: &ParseError) -> bool {
+    matches!(
+        error,
+        ParseError::VariableNotFound(..)
+            | ParseError::ModuleNotFound(..)
+            | ParseError::ModuleOrOverlayNotFound(..)
+            | ParseError::ActiveOverlayNotFound(..)
+            | ParseError::ExportNotFound(..)
+            | ParseError::FileNotFound(..)
+            | ParseError::SourcedFileNotFound(..)
+            | ParseError::RegisteredFileNotFound(..)
+            | ParseError::PluginNotFound { .. }
+    )
+}
 
 /// Compute line and column from a byte offset in source.
 fn offset_to_location(source: &str, offset: usize) -> SourceLocation {
@@ -127,8 +147,13 @@ pub fn format_source(source: &str, config: &Config) -> Result<String, FormatErro
 
     let block = parse(&mut working_set, None, source.as_bytes(), false);
 
-    // Check for parse errors - report the first one with location
-    if let Some(error) = working_set.parse_errors.first() {
+    // Check for parse errors - report the first syntax error with location
+    // Filter out module resolution errors since the code is still syntactically valid
+    let syntax_error = working_set
+        .parse_errors
+        .iter()
+        .find(|e| !is_resolution_error(e));
+    if let Some(error) = syntax_error {
         let span = error.span();
         let location = if span.start < source.len() {
             Some(offset_to_location(source, span.start))
@@ -274,6 +299,11 @@ impl<'a> Formatter<'a> {
 
         // Don't break before operators (looks weird)
         if matches!(shape, FlatShape::Operator) {
+            return;
+        }
+
+        // Don't break before signatures - they must stay with the def command
+        if matches!(shape, FlatShape::Signature) {
             return;
         }
 
