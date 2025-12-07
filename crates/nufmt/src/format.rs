@@ -168,11 +168,15 @@ struct Formatter<'a> {
 
 impl<'a> Formatter<'a> {
     /// Create a new formatter for the given source code and configuration.
-    const fn new(source: &'a str, config: &'a Config) -> Self {
+    ///
+    /// Pre-allocates output buffer with estimated capacity based on source length.
+    fn new(source: &'a str, config: &'a Config) -> Self {
+        // Estimate output size: formatting typically adds ~10% for indentation
+        let capacity = source.len() + source.len() / 10;
         Self {
             source,
             config,
-            output: String::new(),
+            output: String::with_capacity(capacity),
             indent_level: 0,
             line_start: true,
             last_end: 0,
