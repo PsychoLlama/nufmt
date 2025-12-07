@@ -272,10 +272,11 @@ impl<'a> Formatter<'a> {
         self.last_token = Some(token);
     }
 
+    /// Process the gap between the last token and the next token.
+    ///
+    /// Gaps may contain whitespace, comments, or punctuation like `=` or `;`.
     fn process_gap(&mut self, next_start: usize) {
         let gap = &self.source[self.last_end..next_start];
-
-        // Process each line in the gap to handle comments and newlines
         let mut lines = gap.split('\n').peekable();
         let mut first_line = true;
 
@@ -283,80 +284,96 @@ impl<'a> Formatter<'a> {
             let trimmed = line.trim();
             let has_more_lines = lines.peek().is_some();
 
-            // Check for comment
             if let Some(comment_start) = trimmed.find('#') {
-                let comment = &trimmed[comment_start..];
-
-                if first_line && !self.line_start {
-                    // Inline comment on same line - add space before
-                    if !self.output.ends_with(' ') {
-                        self.push_char(' ');
-                    }
-                } else if self.line_start {
-                    self.write_indent();
-                    self.line_start = false;
-                }
-
-                // Handle content before the comment (like = in let)
-                let before_comment = trimmed[..comment_start].trim();
-                if !before_comment.is_empty() {
-                    if !self.output.ends_with(' ') && !self.line_start {
-                        self.push_char(' ');
-                    }
-                    self.push_str(before_comment);
-                    self.push_char(' ');
-                }
-
-                self.push_str(comment);
-
-                if has_more_lines {
-                    self.push_newline();
-                }
+                self.process_gap_comment(trimmed, comment_start, first_line, has_more_lines);
             } else if !trimmed.is_empty() {
-                // Non-comment, non-whitespace content (like = in let, or ; separator)
-                // No space before: ; , . (punctuation that attaches to previous token)
-                let no_space_before = trimmed.starts_with(';')
-                    || trimmed.starts_with(',')
-                    || trimmed.starts_with('.');
-                // No space after: . (field access)
-                let no_space_after = trimmed == ".";
-
-                if !no_space_before
-                    && !self.output.is_empty()
-                    && !self.line_start
-                    && !self.output.ends_with(' ')
-                {
-                    self.push_char(' ');
-                }
-                if self.line_start {
-                    self.write_indent();
-                    self.line_start = false;
-                }
-                self.push_str(trimmed);
-                // Add space after certain punctuation (but not field access dots)
-                if !no_space_after
-                    && (line.ends_with(' ')
-                        || line.ends_with('\t')
-                        || has_more_lines
-                        || trimmed == ";")
-                {
-                    self.push_char(' ');
-                }
-            } else if has_more_lines {
-                // Empty line (just newline)
-                self.push_newline();
-            } else if !first_line {
-                // Trailing part after last newline but no content
-                // Don't add space, newline already happened
-            } else if !gap.is_empty() && !self.line_start {
-                // Just whitespace on single line - add space if not already present
-                if !self.output.ends_with(' ') {
-                    self.push_char(' ');
-                }
+                self.process_gap_content(line, trimmed, has_more_lines);
+            } else {
+                self.process_gap_empty(gap, first_line, has_more_lines);
             }
 
             first_line = false;
         }
+    }
+
+    /// Process a comment found in a gap.
+    fn process_gap_comment(
+        &mut self,
+        trimmed: &str,
+        comment_start: usize,
+        first_line: bool,
+        has_more_lines: bool,
+    ) {
+        let comment = &trimmed[comment_start..];
+
+        if first_line && !self.line_start {
+            // Inline comment on same line - add space before
+            if !self.output.ends_with(' ') {
+                self.push_char(' ');
+            }
+        } else if self.line_start {
+            self.write_indent();
+            self.line_start = false;
+        }
+
+        // Handle content before the comment (like = in let)
+        let before_comment = trimmed[..comment_start].trim();
+        if !before_comment.is_empty() {
+            if !self.output.ends_with(' ') && !self.line_start {
+                self.push_char(' ');
+            }
+            self.push_str(before_comment);
+            self.push_char(' ');
+        }
+
+        self.push_str(comment);
+
+        if has_more_lines {
+            self.push_newline();
+        }
+    }
+
+    /// Process non-comment content in a gap (e.g., `=`, `;`, `.`).
+    fn process_gap_content(&mut self, line: &str, trimmed: &str, has_more_lines: bool) {
+        // No space before punctuation that attaches to previous token
+        let no_space_before =
+            trimmed.starts_with(';') || trimmed.starts_with(',') || trimmed.starts_with('.');
+        // No space after field access dots
+        let no_space_after = trimmed == ".";
+
+        if !no_space_before
+            && !self.output.is_empty()
+            && !self.line_start
+            && !self.output.ends_with(' ')
+        {
+            self.push_char(' ');
+        }
+        if self.line_start {
+            self.write_indent();
+            self.line_start = false;
+        }
+        self.push_str(trimmed);
+
+        // Add space after punctuation (except field access dots)
+        if !no_space_after
+            && (line.ends_with(' ') || line.ends_with('\t') || has_more_lines || trimmed == ";")
+        {
+            self.push_char(' ');
+        }
+    }
+
+    /// Process an empty line in a gap (whitespace only).
+    fn process_gap_empty(&mut self, gap: &str, first_line: bool, has_more_lines: bool) {
+        if has_more_lines {
+            // Empty line followed by more content
+            self.push_newline();
+        } else if first_line && !gap.is_empty() && !self.line_start {
+            // Whitespace on a single line - add space if needed
+            if !self.output.ends_with(' ') {
+                self.push_char(' ');
+            }
+        }
+        // Trailing empty part after last newline: do nothing (newline already emitted)
     }
 
     fn process_block_token(&mut self, token: &str) {
