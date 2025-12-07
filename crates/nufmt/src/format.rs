@@ -903,4 +903,86 @@ mod tests {
         let result = format_source(source, &config).unwrap();
         assert_eq!(result, "echo \"it's\"\n");
     }
+
+    // Quote conversion edge cases (NUFMT-016)
+
+    #[test]
+    fn test_quote_preserve_mode() {
+        // Preserve mode should not change quotes
+        let source = r#"echo "hello""#;
+        let mut config = Config::default();
+        config.quote_style = QuoteStyle::Preserve;
+        let result = format_source(source, &config).unwrap();
+        assert_eq!(result, "echo \"hello\"\n");
+    }
+
+    #[test]
+    fn test_quote_preserve_single() {
+        // Preserve mode should keep single quotes
+        let source = "echo 'hello'";
+        let mut config = Config::default();
+        config.quote_style = QuoteStyle::Preserve;
+        let result = format_source(source, &config).unwrap();
+        assert_eq!(result, "echo 'hello'\n");
+    }
+
+    #[test]
+    fn test_quote_double_with_double_quote_inside() {
+        // Can't convert to double quotes if content contains double quotes
+        let source = r#"echo 'say "hi"'"#;
+        let mut config = Config::default();
+        config.quote_style = QuoteStyle::Double;
+        let result = format_source(source, &config).unwrap();
+        // Should preserve single quotes
+        assert_eq!(result, "echo 'say \"hi\"'\n");
+    }
+
+    #[test]
+    fn test_quote_single_with_backslash() {
+        // Can't convert to single if content has escapes
+        let source = r#"echo "hello\nworld""#;
+        let mut config = Config::default();
+        config.quote_style = QuoteStyle::Single;
+        let result = format_source(source, &config).unwrap();
+        // Should preserve double quotes
+        assert_eq!(result, "echo \"hello\\nworld\"\n");
+    }
+
+    #[test]
+    fn test_quote_double_with_backslash() {
+        // Can't convert to double if content has backslash (becomes escape)
+        let source = r#"echo 'C:\path'"#;
+        let mut config = Config::default();
+        config.quote_style = QuoteStyle::Double;
+        let result = format_source(source, &config).unwrap();
+        // Should preserve single quotes
+        assert_eq!(result, "echo 'C:\\path'\n");
+    }
+
+    #[test]
+    fn test_quote_empty_string_double() {
+        let source = r#"echo ''"#;
+        let mut config = Config::default();
+        config.quote_style = QuoteStyle::Double;
+        let result = format_source(source, &config).unwrap();
+        assert_eq!(result, "echo \"\"\n");
+    }
+
+    #[test]
+    fn test_quote_empty_string_single() {
+        let source = r#"echo """#;
+        let mut config = Config::default();
+        config.quote_style = QuoteStyle::Single;
+        let result = format_source(source, &config).unwrap();
+        assert_eq!(result, "echo ''\n");
+    }
+
+    #[test]
+    fn test_quote_whitespace_only() {
+        let source = r#"echo "   ""#;
+        let mut config = Config::default();
+        config.quote_style = QuoteStyle::Single;
+        let result = format_source(source, &config).unwrap();
+        assert_eq!(result, "echo '   '\n");
+    }
 }
