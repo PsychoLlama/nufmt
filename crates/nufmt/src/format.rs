@@ -164,13 +164,20 @@ struct Formatter<'a> {
     last_end: usize,
     /// Current line length in characters (for line breaking).
     current_line_len: usize,
+    /// Stack tracking whether each nested collection should be multiline.
+    /// Each entry corresponds to a `{` or `[` we've opened.
+    collection_multiline_stack: Vec<bool>,
+    /// The flattened token list for lookahead.
+    tokens: &'a [(Span, FlatShape)],
+    /// Current token index.
+    token_index: usize,
 }
 
 impl<'a> Formatter<'a> {
     /// Create a new formatter for the given source code and configuration.
     ///
     /// Pre-allocates output buffer with estimated capacity based on source length.
-    fn new(source: &'a str, config: &'a Config) -> Self {
+    fn new(source: &'a str, config: &'a Config, tokens: &'a [(Span, FlatShape)]) -> Self {
         // Estimate output size: formatting typically adds ~10% for indentation
         let capacity = source.len() + source.len() / 10;
         Self {
@@ -181,15 +188,20 @@ impl<'a> Formatter<'a> {
             line_start: true,
             last_end: 0,
             current_line_len: 0,
+            collection_multiline_stack: Vec::new(),
+            tokens,
+            token_index: 0,
         }
     }
 
     /// Format the source code using the provided flattened token list.
     ///
     /// Consumes the formatter and returns the formatted output string.
-    fn format(mut self, flattened: &[(Span, FlatShape)], source_len: usize) -> String {
-        for (span, shape) in flattened {
-            self.process_token(*span, shape);
+    fn format(mut self, source_len: usize) -> String {
+        while self.token_index < self.tokens.len() {
+            let (span, ref shape) = self.tokens[self.token_index];
+            self.token_index += 1;
+            self.process_token(span, shape);
         }
 
         // Handle trailing content (comments after last token)
@@ -488,6 +500,76 @@ impl<'a> Formatter<'a> {
         self.line_start = false;
     }
 
+    /// Calculate the single-line length of a collection starting at the current position.
+    ///
+    /// Scans from the current token index to find the matching closing bracket
+    /// and estimates the single-line formatted length.
+    fn calculate_collection_length(&self, _open_bracket: &str) -> usize {
+        let mut length = 1; // Opening bracket
+        let mut depth = 1;
+        let mut idx = self.token_index;
+        let mut prev_was_colon = false;
+        let mut prev_was_value = false;
+
+        while idx < self.tokens.len() && depth > 0 {
+            let (span, shape) = &self.tokens[idx];
+            if span.start <= span.end && span.end <= self.source.len() {
+                let token = self.source[span.start..span.end].trim();
+
+                match *shape {
+                    FlatShape::Record | FlatShape::List => {
+                        if token == "{" || token == "[" {
+                            depth += 1;
+                            length += 1;
+                            prev_was_value = false;
+                        } else if token == "}" || token == "]" {
+                            depth -= 1;
+                            if depth > 0 {
+                                length += 1;
+                            }
+                            prev_was_value = true;
+                        } else if token == ":" {
+                            length += 2; // ": "
+                            prev_was_colon = true;
+                            prev_was_value = false;
+                        } else if token == "," {
+                            length += 2; // ", "
+                            prev_was_value = false;
+                        } else if !token.is_empty() {
+                            // A value
+                            if prev_was_value && !prev_was_colon {
+                                length += 1; // space between values
+                            }
+                            length += token.len();
+                            prev_was_colon = false;
+                            prev_was_value = true;
+                        }
+                    }
+                    _ => {
+                        // Other tokens (values)
+                        if prev_was_value && !prev_was_colon {
+                            length += 1; // space between values
+                        }
+                        length += token.len();
+                        prev_was_colon = false;
+                        prev_was_value = true;
+                    }
+                }
+            }
+            idx += 1;
+        }
+
+        length + 1 // Closing bracket
+    }
+
+    /// Check if the current collection should be multiline.
+    fn should_be_multiline(&self) -> bool {
+        self.collection_multiline_stack
+            .last()
+            .copied()
+            .unwrap_or(false)
+    }
+
     /// Process a record/list delimiter token and normalize its spacing.
     ///
     /// Handles brackets `{}[]`, colons `:`, and commas `,` with proper
@@ -502,8 +584,15 @@ impl<'a> Formatter<'a> {
 
         // Handle opening brackets - may have trailing newline
         if trimmed == "{" || trimmed == "[" {
+            // Calculate if this collection should be multiline
+            let collection_len = self.calculate_collection_length(trimmed);
+            let would_exceed = self.current_line_len + collection_len > self.config.max_width;
+            let force_multiline = has_newline || would_exceed;
+
+            self.collection_multiline_stack.push(force_multiline);
             self.push_str(trimmed);
-            if has_newline {
+
+            if force_multiline {
                 self.indent_level += 1;
                 self.push_newline();
             } else {
@@ -514,7 +603,8 @@ impl<'a> Formatter<'a> {
 
         // Handle closing brackets - may have leading newline
         if trimmed == "}" || trimmed == "]" {
-            if has_newline && !self.output.ends_with('\n') {
+            let was_multiline = self.collection_multiline_stack.pop().unwrap_or(false);
+            if was_multiline && !self.output.ends_with('\n') {
                 self.indent_level = self.indent_level.saturating_sub(1);
                 self.push_newline();
                 self.write_indent();
@@ -533,7 +623,7 @@ impl<'a> Formatter<'a> {
 
         // Handle comma - normalize to ", " or newline for multiline
         if trimmed == "," {
-            if has_newline {
+            if self.should_be_multiline() {
                 self.push_newline();
             } else {
                 self.push_str(", ");
@@ -544,7 +634,9 @@ impl<'a> Formatter<'a> {
 
         // Handle standalone newline (row separator in multiline records)
         if trimmed.is_empty() && has_newline {
-            self.push_newline();
+            if self.should_be_multiline() {
+                self.push_newline();
+            }
             return;
         }
 
@@ -729,8 +821,8 @@ fn format_block(
     config: &Config,
 ) -> String {
     let flattened = flatten_block(working_set, block);
-    let formatter = Formatter::new(source, config);
-    formatter.format(&flattened, source.len())
+    let formatter = Formatter::new(source, config, &flattened);
+    formatter.format(source.len())
 }
 
 #[cfg(test)]
@@ -985,5 +1077,72 @@ mod tests {
         config.quote_style = QuoteStyle::Single;
         let result = format_source(source, &config).unwrap();
         assert_eq!(result, "echo '   '\n");
+    }
+
+    // Auto-breaking tests for records and lists
+
+    #[test]
+    fn test_long_record_auto_break() {
+        // Long record should break to multiline when exceeding max_width
+        let source = "{name: \"test\", value: 42, description: \"a long description\"}";
+        let mut config = Config::default();
+        config.max_width = 40;
+        let result = format_source(source, &config).unwrap();
+        // Should break into multiple lines
+        let newline_count = result.chars().filter(|&c| c == '\n').count();
+        assert!(
+            newline_count > 1,
+            "Expected multiline record in: {result:?}"
+        );
+        // Should have proper indentation
+        assert!(
+            result.contains("\n  "),
+            "Expected indentation in: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_short_record_stays_single_line() {
+        // Short record should stay on one line
+        let source = "{a: 1, b: 2}";
+        let config = Config::default(); // max_width = 100
+        let result = format_source(source, &config).unwrap();
+        assert_eq!(result, "{a: 1, b: 2}\n");
+    }
+
+    #[test]
+    fn test_long_list_auto_break() {
+        // Long list should break to multiline when exceeding max_width
+        let source = "[\"item1\", \"item2\", \"item3\", \"item4\", \"item5\", \"item6\"]";
+        let mut config = Config::default();
+        config.max_width = 30;
+        let result = format_source(source, &config).unwrap();
+        // Should break into multiple lines
+        let newline_count = result.chars().filter(|&c| c == '\n').count();
+        assert!(newline_count > 1, "Expected multiline list in: {result:?}");
+    }
+
+    #[test]
+    fn test_short_list_stays_single_line() {
+        // Short list should stay on one line
+        let source = "[1, 2, 3]";
+        let config = Config::default(); // max_width = 100
+        let result = format_source(source, &config).unwrap();
+        assert_eq!(result, "[1, 2, 3]\n");
+    }
+
+    #[test]
+    fn test_nested_record_auto_break() {
+        // Nested record where outer exceeds max_width
+        let source = "{outer: {inner: \"value\", num: 42}, other: \"data\"}";
+        let mut config = Config::default();
+        config.max_width = 35;
+        let result = format_source(source, &config).unwrap();
+        // Should break outer record
+        let newline_count = result.chars().filter(|&c| c == '\n').count();
+        assert!(
+            newline_count > 1,
+            "Expected multiline record in: {result:?}"
+        );
     }
 }
