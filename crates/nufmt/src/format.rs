@@ -58,6 +58,7 @@ struct Formatter<'a> {
     line_start: bool,
     last_end: usize,
     last_token: Option<&'a str>,
+    current_line_len: usize,
 }
 
 impl<'a> Formatter<'a> {
@@ -70,6 +71,7 @@ impl<'a> Formatter<'a> {
             line_start: true,
             last_end: 0,
             last_token: None,
+            current_line_len: 0,
         }
     }
 
@@ -97,17 +99,27 @@ impl<'a> Formatter<'a> {
             return;
         }
 
-        // Handle pipe specially - always add spaces around it
+        // Handle pipe specially - add spaces around it and possibly break line
         if matches!(shape, FlatShape::Pipe) {
-            self.process_gap(span.start);
-            if !self.output.is_empty() && !self.line_start && !self.output.ends_with(' ') {
-                self.output.push(' ');
+            // Don't process gap normally - we handle spacing ourselves
+            let gap = &self.source[self.last_end..span.start];
+            let has_newline = gap.contains('\n');
+
+            // Check if we should break before the pipe
+            // " | " adds 3 characters
+            let would_exceed = self.current_line_len + 3 > self.config.max_width;
+
+            if (would_exceed || has_newline) && !self.line_start {
+                self.push_newline();
             }
+
             if self.line_start {
                 self.write_indent();
+            } else if !self.output.ends_with(' ') {
+                self.push_char(' ');
             }
-            self.output.push_str(token);
-            self.output.push(' ');
+            self.push_str(token);
+            self.push_char(' ');
             self.line_start = false;
             self.last_end = span.end;
             self.last_token = Some(token);
@@ -123,7 +135,7 @@ impl<'a> Formatter<'a> {
         }
 
         // Write the token
-        self.output.push_str(token);
+        self.push_str(token);
         self.line_start = false;
         self.last_end = span.end;
         self.last_token = Some(token);
@@ -139,9 +151,8 @@ impl<'a> Formatter<'a> {
             // Preserve at most one blank line
             let lines_to_add = newline_count.min(2);
             for _ in 0..lines_to_add {
-                self.output.push('\n');
+                self.push_newline();
             }
-            self.line_start = true;
             return;
         }
 
@@ -150,23 +161,23 @@ impl<'a> Formatter<'a> {
         if !gap_content.is_empty() {
             // There's meaningful content in the gap - preserve it with spacing
             if !self.output.is_empty() && !self.line_start && !self.output.ends_with(' ') {
-                self.output.push(' ');
+                self.push_char(' ');
             }
             if self.line_start {
                 self.write_indent();
                 self.line_start = false;
             }
-            self.output.push_str(gap_content);
+            self.push_str(gap_content);
             // Add space after gap content if there was whitespace after it originally
             if gap.ends_with(' ') || gap.ends_with('\t') {
-                self.output.push(' ');
+                self.push_char(' ');
             }
             return;
         }
 
         // Just whitespace - add single space if not at line start
         if !self.output.is_empty() && !self.line_start && !gap.is_empty() {
-            self.output.push(' ');
+            self.push_char(' ');
         }
     }
 
@@ -177,21 +188,20 @@ impl<'a> Formatter<'a> {
         if trimmed.starts_with('{') {
             // Add space before brace if not at line start
             if !self.line_start && !self.output.ends_with(' ') {
-                self.output.push(' ');
+                self.push_char(' ');
             }
             if self.line_start {
                 self.write_indent();
             }
-            self.output.push('{');
+            self.push_char('{');
             self.indent_level += 1;
 
             // Check if there's content after the brace on the same line
             let after_brace = token.trim_start().strip_prefix('{').unwrap_or("");
             if after_brace.contains('\n') || after_brace.trim().is_empty() {
-                self.output.push('\n');
-                self.line_start = true;
+                self.push_newline();
             } else {
-                self.output.push(' ');
+                self.push_char(' ');
                 self.line_start = false;
             }
         }
@@ -202,25 +212,48 @@ impl<'a> Formatter<'a> {
 
             // Check if there's content before the brace
             let before_brace = token.trim_end().strip_suffix('}').unwrap_or("");
-            if before_brace.contains('\n') || self.line_start {
-                if !self.output.ends_with('\n') {
-                    self.output.push('\n');
-                }
-                self.line_start = true;
+            if (before_brace.contains('\n') || self.line_start) && !self.output.ends_with('\n') {
+                self.push_newline();
             }
 
             if self.line_start {
                 self.write_indent();
             }
-            self.output.push('}');
+            self.push_char('}');
             self.line_start = false;
         }
     }
 
     fn write_indent(&mut self) {
-        for _ in 0..(self.indent_level * self.config.indent_width) {
+        let indent_size = self.indent_level * self.config.indent_width;
+        for _ in 0..indent_size {
             self.output.push(' ');
         }
+        self.current_line_len = indent_size;
+    }
+
+    fn push_char(&mut self, c: char) {
+        self.output.push(c);
+        if c == '\n' {
+            self.current_line_len = 0;
+        } else {
+            self.current_line_len += 1;
+        }
+    }
+
+    fn push_str(&mut self, s: &str) {
+        self.output.push_str(s);
+        if let Some(last_newline) = s.rfind('\n') {
+            self.current_line_len = s.len() - last_newline - 1;
+        } else {
+            self.current_line_len += s.len();
+        }
+    }
+
+    fn push_newline(&mut self) {
+        self.output.push('\n');
+        self.current_line_len = 0;
+        self.line_start = true;
     }
 }
 
@@ -298,5 +331,20 @@ mod tests {
         let config = Config::default();
         let result = format_source(source, &config).unwrap();
         assert_eq!(result, "let x = 1 + 2\n");
+    }
+
+    #[test]
+    fn test_long_pipeline_break() {
+        // Long pipeline should break at pipes when exceeding max_width
+        let source = "ls | sort-by name | first 10 | reverse";
+        let mut config = Config::default();
+        config.max_width = 25;
+        let result = format_source(source, &config).unwrap();
+        // Should break into multiple lines (more than just trailing newline)
+        let newline_count = result.chars().filter(|&c| c == '\n').count();
+        assert!(
+            newline_count > 1,
+            "Expected multiple line breaks in: {result:?}"
+        );
     }
 }
