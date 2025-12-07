@@ -140,6 +140,9 @@ fn find_config_file() -> Option<PathBuf> {
     }
 }
 
+/// Format source code from stdin.
+///
+/// Returns true if the source would change (for check mode).
 fn format_stdin(args: &Args, config: &Config) -> Result<bool, Error> {
     let mut source = String::new();
     io::stdin().read_to_string(&mut source)?;
@@ -159,6 +162,11 @@ fn format_stdin(args: &Args, config: &Config) -> Result<bool, Error> {
     Ok(would_change)
 }
 
+/// Format a single file.
+///
+/// In check mode, prints a diff if changes are needed.
+/// Otherwise, writes the formatted output back to the file.
+/// Returns true if the file would change.
 fn format_file(path: &Path, args: &Args, config: &Config) -> Result<bool, Error> {
     let source = fs::read_to_string(path)?;
     let formatted = format_source(&source, config)?;
@@ -176,6 +184,7 @@ fn format_file(path: &Path, args: &Args, config: &Config) -> Result<bool, Error>
     Ok(would_change)
 }
 
+/// Print a unified diff between original and formatted content.
 fn print_diff(name: &str, original: &str, formatted: &str) {
     eprintln!("--- {name}");
     eprintln!("+++ {name} (formatted)");
@@ -229,10 +238,14 @@ fn print_diff(name: &str, original: &str, formatted: &str) {
     eprintln!();
 }
 
+/// CLI error types.
 #[derive(Debug)]
 enum Error {
+    /// I/O error (file read/write, stdin/stdout).
     Io(io::Error),
+    /// Formatting error (parse failure).
     Format(FormatError),
+    /// Configuration file error.
     Config { path: PathBuf, source: String },
 }
 
