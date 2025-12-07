@@ -41,3 +41,8 @@ fn test_fixture_variables() {
 fn test_fixture_comments() {
     test_fixture("comments");
 }
+
+#[test]
+fn test_fixture_complex() {
+    test_fixture("complex");
+}
