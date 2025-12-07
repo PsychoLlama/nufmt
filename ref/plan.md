@@ -72,3 +72,5 @@ nufmt-cli (binary)
 - ✓ String interpolation preservation (`$"Hello, ($name)"`)
 - ✓ Semicolon/comma spacing normalization
 - ✓ Hidden `--debug-tokens` flag for development
+- ✓ Full command support via `nu-command` (where, each, select, etc.)
+- ✓ Field access dot spacing (`$env.PATH`)
