@@ -427,4 +427,60 @@ mod tests {
         let would_change = format_file(&file_path, &args, &config).unwrap();
         assert!(!would_change);
     }
+
+    // Diff algorithm edge case tests (NUFMT-015)
+
+    #[test]
+    fn test_print_diff_identical_content() {
+        // Should not panic when content is identical (no diff output)
+        print_diff("test", "line1\nline2\n", "line1\nline2\n");
+    }
+
+    #[test]
+    fn test_print_diff_empty_original() {
+        // Should not panic when original is empty
+        print_diff("test", "", "new content\n");
+    }
+
+    #[test]
+    fn test_print_diff_empty_formatted() {
+        // Should not panic when formatted is empty
+        print_diff("test", "old content\n", "");
+    }
+
+    #[test]
+    fn test_print_diff_both_empty() {
+        // Should not panic when both are empty
+        print_diff("test", "", "");
+    }
+
+    #[test]
+    fn test_print_diff_single_line() {
+        // Should not panic with single line content
+        print_diff("test", "old", "new");
+    }
+
+    #[test]
+    fn test_print_diff_large_insertion() {
+        // Should not panic with many new lines
+        let original = "line1\n";
+        let formatted = "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10\n";
+        print_diff("test", original, formatted);
+    }
+
+    #[test]
+    fn test_print_diff_large_deletion() {
+        // Should not panic with many deleted lines
+        let original = "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10\n";
+        let formatted = "line1\n";
+        print_diff("test", original, formatted);
+    }
+
+    #[test]
+    fn test_print_diff_complete_replacement() {
+        // Should not panic when all lines change
+        let original = "a\nb\nc\n";
+        let formatted = "x\ny\nz\n";
+        print_diff("test", original, formatted);
+    }
 }
