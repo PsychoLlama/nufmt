@@ -4,10 +4,10 @@ use serde::Deserialize;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum QuoteStyle {
-    /// Preserve existing quote style (default).
-    #[default]
+    /// Preserve existing quote style.
     Preserve,
-    /// Prefer double quotes when possible.
+    /// Prefer double quotes when possible (default).
+    #[default]
     Double,
     /// Prefer single quotes when possible.
     Single,
