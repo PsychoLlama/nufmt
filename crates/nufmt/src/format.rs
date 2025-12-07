@@ -139,11 +139,16 @@ impl<'a> Formatter<'a> {
         let token = &self.source[span.start..span.end];
 
         // Handle block/closure shapes specially - they include braces with whitespace
+        // But Block is also used for ( ) in string interpolation - only process as block if it has braces
         if matches!(shape, FlatShape::Block | FlatShape::Closure) {
-            self.process_gap(span.start);
-            self.process_block_token(token);
-            self.last_end = span.end;
-            return;
+            let trimmed = token.trim();
+            if trimmed.starts_with('{') || trimmed.ends_with('}') {
+                self.process_gap(span.start);
+                self.process_block_token(token);
+                self.last_end = span.end;
+                return;
+            }
+            // Fall through to normal token handling for ( ) in interpolation
         }
 
         // Handle pipe specially - add spaces around it and possibly break line
