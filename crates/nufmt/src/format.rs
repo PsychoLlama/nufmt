@@ -248,6 +248,7 @@ impl<'a> Formatter<'a> {
             }
             FlatShape::String => {
                 self.process_gap(span.start);
+                self.maybe_break_line_for_token(token, shape);
                 self.process_string_token(token, span);
                 return;
             }
@@ -256,7 +257,44 @@ impl<'a> Formatter<'a> {
 
         // Default token handling
         self.process_gap(span.start);
+        // Check if we need to break the line before this token
+        self.maybe_break_line_for_token(token, shape);
         self.write_token(token, span);
+    }
+
+    /// Check if we should break the line before writing a token.
+    ///
+    /// This is used for long command lines to wrap arguments when
+    /// the line would exceed `max_width`.
+    fn maybe_break_line_for_token(&mut self, token: &str, shape: &FlatShape) {
+        // Only break if we're not at line start and would exceed max_width
+        if self.line_start {
+            return;
+        }
+
+        // Don't break before operators (looks weird)
+        if matches!(shape, FlatShape::Operator) {
+            return;
+        }
+
+        // Token length (space already added by process_gap)
+        let token_len = token.len();
+
+        // Would adding this token exceed max_width?
+        if self.current_line_len + token_len > self.config.max_width {
+            // Remove the trailing space before breaking
+            if self.output.ends_with(' ') {
+                self.output.pop();
+                self.current_line_len = self.current_line_len.saturating_sub(1);
+            }
+            // Break the line and add continuation indentation
+            self.push_newline();
+            // Use double indent for continuation
+            self.indent_level += 1;
+            self.write_indent();
+            self.indent_level -= 1;
+            self.line_start = false;
+        }
     }
 
     /// Check if a span is valid and non-overlapping with previously processed content.
@@ -1309,5 +1347,34 @@ mod tests {
         // Should break into multiple lines
         let newline_count = result.chars().filter(|&c| c == '\n').count();
         assert!(newline_count > 1, "Expected multiline block in: {result:?}");
+    }
+
+    #[test]
+    fn test_long_command_parameter_break() {
+        // Long command should break when parameters exceed max_width
+        let source = "open some-file.txt | get column1 column2 column3 column4 column5";
+        let mut config = Config::default();
+        config.max_width = 40;
+        let result = format_source(source, &config).unwrap();
+        // Should break into multiple lines
+        let newline_count = result.chars().filter(|&c| c == '\n').count();
+        assert!(
+            newline_count > 1,
+            "Expected multiline command in: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_short_command_stays_single_line() {
+        // Short command should stay on one line
+        let source = "ls -la";
+        let config = Config::default(); // max_width = 100
+        let result = format_source(source, &config).unwrap();
+        // Should be on one line (only trailing newline)
+        let newline_count = result.chars().filter(|&c| c == '\n').count();
+        assert_eq!(
+            newline_count, 1,
+            "Expected single line command in: {result:?}"
+        );
     }
 }
