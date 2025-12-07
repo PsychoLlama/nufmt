@@ -13,6 +13,17 @@ pub enum QuoteStyle {
     Single,
 }
 
+/// Whether to add spaces inside brackets/braces.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BracketSpacing {
+    /// Add spaces inside brackets: `{ a: 1 }`, `[ 1, 2 ]` (default).
+    #[default]
+    Spaced,
+    /// No spaces inside brackets: `{a: 1}`, `[1, 2]`.
+    Compact,
+}
+
 /// Configuration validation error.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigError {
@@ -38,6 +49,8 @@ pub struct Config {
     pub max_width: usize,
     /// Preferred quote style for strings.
     pub quote_style: QuoteStyle,
+    /// Whether to add spaces inside brackets/braces.
+    pub bracket_spacing: BracketSpacing,
 }
 
 impl Config {
@@ -73,6 +86,7 @@ impl Default for Config {
             indent_width: 2,
             max_width: 100,
             quote_style: QuoteStyle::default(),
+            bracket_spacing: BracketSpacing::default(),
         }
     }
 }
@@ -129,6 +143,7 @@ mod tests {
             indent_width: 2,
             max_width: 80,
             quote_style: QuoteStyle::Single,
+            bracket_spacing: BracketSpacing::Spaced,
         };
         assert!(config.validate().is_ok());
     }

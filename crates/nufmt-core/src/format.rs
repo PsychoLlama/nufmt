@@ -5,7 +5,7 @@ use nu_command::add_shell_command_context;
 use nu_parser::{FlatShape, flatten_block, parse};
 use nu_protocol::{ParseError, Span, engine::StateWorkingSet};
 
-use crate::{Config, QuoteStyle};
+use crate::{BracketSpacing, Config, QuoteStyle};
 
 /// Create an engine state with all Nushell commands available for parsing.
 fn create_engine_state() -> nu_protocol::engine::EngineState {
@@ -396,8 +396,44 @@ impl<'a> Formatter<'a> {
             self.process_block_token(token);
             self.last_end = span.end;
             true
+        } else if trimmed.starts_with('(') || trimmed.ends_with(')') {
+            // Handle parenthesized expressions (e.g., spread expressions, subexpressions)
+            self.process_gap(span.start);
+            self.process_paren_block_token(token);
+            self.last_end = span.end;
+            true
         } else {
             false
+        }
+    }
+
+    /// Process a parenthesized block token (subexpression or spread).
+    fn process_paren_block_token(&mut self, token: &str) {
+        let trimmed = token.trim();
+        let has_open = trimmed.starts_with('(');
+        let has_close = trimmed.ends_with(')');
+        let has_newline = token.contains('\n');
+
+        if has_open {
+            self.push_char('(');
+            if has_newline {
+                self.indent_level += 1;
+                self.push_newline();
+            }
+        }
+
+        if has_close {
+            if has_newline && !self.output.ends_with('\n') {
+                self.indent_level = self.indent_level.saturating_sub(1);
+                self.push_newline();
+                self.write_indent();
+            } else if has_open && has_newline {
+                // Single-token block like "(\n)" - already dedented
+                self.indent_level = self.indent_level.saturating_sub(1);
+                self.write_indent();
+            }
+            self.push_char(')');
+            self.line_start = false;
         }
     }
 
@@ -508,9 +544,11 @@ impl<'a> Formatter<'a> {
     /// Process non-comment content in a gap (e.g., `=`, `;`, `.`).
     fn process_gap_content(&mut self, line: &str, trimmed: &str, has_more_lines: bool) {
         // No space before punctuation that attaches to previous token
-        let no_space_before =
-            trimmed.starts_with(';') || trimmed.starts_with(',') || trimmed.starts_with('.');
-        // No space after field access dots
+        let no_space_before = trimmed.starts_with(';')
+            || trimmed.starts_with(',')
+            || trimmed.starts_with('.')
+            || trimmed.starts_with('?'); // Optional accessor (name?)
+        // No space after field access dots (but ? should have space after for next argument)
         let no_space_after = trimmed == ".";
 
         if !no_space_before
@@ -840,6 +878,9 @@ impl<'a> Formatter<'a> {
             if force_multiline {
                 self.indent_level += 1;
                 self.push_newline();
+            } else if self.config.bracket_spacing == BracketSpacing::Spaced {
+                self.push_char(' ');
+                self.line_start = false;
             } else {
                 self.line_start = false;
             }
@@ -853,6 +894,11 @@ impl<'a> Formatter<'a> {
                 self.indent_level = self.indent_level.saturating_sub(1);
                 self.push_newline();
                 self.write_indent();
+            } else if !was_multiline && self.config.bracket_spacing == BracketSpacing::Spaced {
+                // Add space before closing bracket for single-line collections
+                if !self.output.ends_with(' ') {
+                    self.push_char(' ');
+                }
             }
             self.push_str(trimmed);
             self.line_start = false;
@@ -1176,13 +1222,31 @@ mod tests {
         let source = "{a:1,  b:   2}";
         let config = Config::default();
         let result = format_source(source, &config).unwrap();
-        assert_eq!(result, "{a: 1, b: 2}\n");
+        assert_eq!(result, "{ a: 1, b: 2 }\n");
     }
 
     #[test]
     fn test_list_spacing() {
         let source = "[1,  2,   3]";
         let config = Config::default();
+        let result = format_source(source, &config).unwrap();
+        assert_eq!(result, "[ 1, 2, 3 ]\n");
+    }
+
+    #[test]
+    fn test_record_compact_spacing() {
+        let source = "{ a: 1, b: 2 }";
+        let mut config = Config::default();
+        config.bracket_spacing = BracketSpacing::Compact;
+        let result = format_source(source, &config).unwrap();
+        assert_eq!(result, "{a: 1, b: 2}\n");
+    }
+
+    #[test]
+    fn test_list_compact_spacing() {
+        let source = "[ 1, 2, 3 ]";
+        let mut config = Config::default();
+        config.bracket_spacing = BracketSpacing::Compact;
         let result = format_source(source, &config).unwrap();
         assert_eq!(result, "[1, 2, 3]\n");
     }
@@ -1352,7 +1416,7 @@ mod tests {
         let source = "{a: 1, b: 2}";
         let config = Config::default(); // max_width = 100
         let result = format_source(source, &config).unwrap();
-        assert_eq!(result, "{a: 1, b: 2}\n");
+        assert_eq!(result, "{ a: 1, b: 2 }\n");
     }
 
     #[test]
@@ -1373,7 +1437,7 @@ mod tests {
         let source = "[1, 2, 3]";
         let config = Config::default(); // max_width = 100
         let result = format_source(source, &config).unwrap();
-        assert_eq!(result, "[1, 2, 3]\n");
+        assert_eq!(result, "[ 1, 2, 3 ]\n");
     }
 
     #[test]

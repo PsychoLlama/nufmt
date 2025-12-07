@@ -54,6 +54,24 @@ impl From<QuoteStyleArg> for nufmt_core::QuoteStyle {
     }
 }
 
+/// Bracket spacing style for CLI arguments.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum BracketSpacingArg {
+    /// Add spaces inside brackets: `{ a: 1 }`, `[ 1, 2 ]`.
+    Spaced,
+    /// No spaces inside brackets: `{a: 1}`, `[1, 2]`.
+    Compact,
+}
+
+impl From<BracketSpacingArg> for nufmt_core::BracketSpacing {
+    fn from(arg: BracketSpacingArg) -> Self {
+        match arg {
+            BracketSpacingArg::Spaced => Self::Spaced,
+            BracketSpacingArg::Compact => Self::Compact,
+        }
+    }
+}
+
 /// ANSI color codes for terminal output.
 mod color {
     pub const RESET: &str = "\x1b[0m";
@@ -111,6 +129,10 @@ struct Args {
     /// Preferred quote style for strings
     #[arg(long, value_enum)]
     quote_style: Option<QuoteStyleArg>,
+
+    /// Spacing inside brackets and braces
+    #[arg(long, value_enum)]
+    bracket_spacing: Option<BracketSpacingArg>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -423,6 +445,9 @@ fn load_config(args: &Args) -> Result<Config, Error> {
     if let Some(quote_style) = args.quote_style {
         config.quote_style = quote_style.into();
     }
+    if let Some(bracket_spacing) = args.bracket_spacing {
+        config.bracket_spacing = bracket_spacing.into();
+    }
 
     // Validate the final config (in case CLI args are out of range)
     config.validate().map_err(|e| Error::Config {
@@ -717,6 +742,7 @@ mod tests {
             indent_width: None,
             max_width: None,
             quote_style: None,
+            bracket_spacing: None,
         };
 
         // When no config file exists, should use defaults
@@ -757,6 +783,7 @@ mod tests {
             indent_width: None,
             max_width: None,
             quote_style: None,
+            bracket_spacing: None,
         };
         let config = Config::default();
 
@@ -786,6 +813,7 @@ mod tests {
             indent_width: None,
             max_width: None,
             quote_style: None,
+            bracket_spacing: None,
         };
         let config = Config::default();
 
@@ -815,6 +843,7 @@ mod tests {
             indent_width: None,
             max_width: None,
             quote_style: None,
+            bracket_spacing: None,
         };
         let config = Config::default();
 

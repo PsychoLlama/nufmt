@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `bracket_spacing` config option and `--bracket-spacing` CLI flag (spaced/compact)
+  - `spaced` (default): `{ a: 1 }`, `[ 1, 2, 3 ]`
+  - `compact`: `{a: 1}`, `[1, 2, 3]`
+
+### Fixed
+
+- Optional field accessors now stay attached to the field name (`name?` not `name ?`)
+- Multiline parenthesized expressions now maintain proper indentation for pipelines
+
 ## [0.4.0] - 2025-12-07
 
 ### Added
