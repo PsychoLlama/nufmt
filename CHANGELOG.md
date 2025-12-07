@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2025-12-07
+
 ### Added
 
 - `trailing_comma` config option and `--trailing-comma` CLI flag (always/never)
@@ -96,7 +98,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Parse error messages with source locations
 - Nix flake for installation and development
 
-[Unreleased]: https://github.com/psychollama/nufmt/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/psychollama/nufmt/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/psychollama/nufmt/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/psychollama/nufmt/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/psychollama/nufmt/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/psychollama/nufmt/compare/v0.2.0...v0.3.0
