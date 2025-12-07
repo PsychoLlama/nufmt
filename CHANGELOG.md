@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - CLI flags for config options: `--indent-width`, `--max-width`, `--quote-style`
 
+### Changed
+
+- Improved error messages with source context, caret pointing to error location, and help text
+
 ### Fixed
 
 - Formatting no longer fails on unresolved references (undefined variables, missing modules, etc.)

@@ -2139,6 +2139,7 @@ dependencies = [
 name = "nufmt"
 version = "0.2.0"
 dependencies = [
+ "miette",
  "nu-cmd-lang",
  "nu-command",
  "nu-parser",

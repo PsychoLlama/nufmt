@@ -27,20 +27,74 @@ pub struct SourceLocation {
 pub enum FormatError {
     /// The source code could not be parsed.
     ParseError {
+        /// The error message.
         message: String,
+        /// Optional help text for fixing the error.
+        help: Option<String>,
+        /// Source location of the error.
         location: Option<SourceLocation>,
+        /// The source line containing the error.
+        source_line: Option<String>,
     },
+}
+
+impl FormatError {
+    /// Create a parse error with context from the source code.
+    fn from_parse_error(error: &ParseError, source: &str) -> Self {
+        use miette::Diagnostic;
+
+        let span = error.span();
+        let location = if span.start < source.len() {
+            Some(offset_to_location(source, span.start))
+        } else {
+            None
+        };
+
+        // Extract the source line containing the error
+        let source_line =
+            location.map(|loc| source.lines().nth(loc.line - 1).unwrap_or("").to_string());
+
+        // Get help text from the diagnostic if available
+        let help = error.help().map(|h| h.to_string());
+
+        Self::ParseError {
+            message: error.to_string(),
+            help,
+            location,
+            source_line,
+        }
+    }
 }
 
 impl std::fmt::Display for FormatError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::ParseError { message, location } => {
+            Self::ParseError {
+                message,
+                help,
+                location,
+                source_line,
+            } => {
+                // Print error message with location
                 if let Some(loc) = location {
-                    write!(f, "{}:{}: {message}", loc.line, loc.column)
+                    writeln!(f, "{}:{}: {message}", loc.line, loc.column)?;
                 } else {
-                    write!(f, "{message}")
+                    writeln!(f, "{message}")?;
                 }
+
+                // Print source line with caret pointing to error
+                if let (Some(line), Some(loc)) = (source_line, location) {
+                    writeln!(f, "  |")?;
+                    writeln!(f, "{:>3} | {line}", loc.line)?;
+                    writeln!(f, "  | {:>width$}^", "", width = loc.column - 1)?;
+                }
+
+                // Print help text if available
+                if let Some(help_text) = help {
+                    write!(f, "  = help: {help_text}")?;
+                }
+
+                Ok(())
             }
         }
     }
@@ -154,16 +208,7 @@ pub fn format_source(source: &str, config: &Config) -> Result<String, FormatErro
         .iter()
         .find(|e| !is_resolution_error(e));
     if let Some(error) = syntax_error {
-        let span = error.span();
-        let location = if span.start < source.len() {
-            Some(offset_to_location(source, span.start))
-        } else {
-            None
-        };
-        return Err(FormatError::ParseError {
-            message: error.to_string(),
-            location,
-        });
+        return Err(FormatError::from_parse_error(error, source));
     }
 
     let formatted = format_block(&working_set, &block, source, config);

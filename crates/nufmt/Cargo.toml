@@ -10,6 +10,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+miette.workspace = true
 nu-cmd-lang.workspace = true
 nu-command.workspace = true
 nu-parser.workspace = true
