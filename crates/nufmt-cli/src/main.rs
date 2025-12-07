@@ -101,32 +101,29 @@ fn main() -> ExitCode {
 fn load_config(args: &Args) -> Result<Config, Error> {
     // If explicit config path provided, use it
     if let Some(path) = &args.config {
-        let content = fs::read_to_string(path).map_err(|e| Error::Config {
-            path: path.clone(),
-            source: e.to_string(),
-        })?;
-        let config: Config = toml::from_str(&content).map_err(|e| Error::Config {
-            path: path.clone(),
-            source: e.to_string(),
-        })?;
-        return Ok(config);
+        return load_config_file(path);
     }
 
     // Search for .nufmt.toml in current and parent directories
     if let Some(path) = find_config_file() {
-        let content = fs::read_to_string(&path).map_err(|e| Error::Config {
-            path: path.clone(),
-            source: e.to_string(),
-        })?;
-        let config: Config = toml::from_str(&content).map_err(|e| Error::Config {
-            path,
-            source: e.to_string(),
-        })?;
-        return Ok(config);
+        return load_config_file(&path);
     }
 
     // No config file found, use defaults
     Ok(Config::default())
+}
+
+/// Load and parse a config file.
+fn load_config_file(path: &Path) -> Result<Config, Error> {
+    let content = fs::read_to_string(path).map_err(|e| Error::Config {
+        path: path.to_path_buf(),
+        source: e.to_string(),
+    })?;
+    let config: Config = toml::from_str(&content).map_err(|e| Error::Config {
+        path: path.to_path_buf(),
+        source: e.to_string(),
+    })?;
+    Ok(config)
 }
 
 /// Search for .nufmt.toml in current directory and ancestors.
