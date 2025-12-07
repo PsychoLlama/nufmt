@@ -12,4 +12,5 @@ Nushell code formatter. See `ref/plan.md` for implementation plan.
 
 ## Rules
 
-Run `just check` before every commit. All checks must pass.
+- Run `just check` before every commit. All checks must pass.
+- Update `CHANGELOG.md` when adding features or fixing bugs.

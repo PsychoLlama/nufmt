@@ -1,14 +1,56 @@
 use std::{
     fs,
-    io::{self, Read, Write},
+    io::{self, IsTerminal, Read, Write},
     path::{Path, PathBuf},
     process::ExitCode,
-    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+    sync::atomic::{AtomicUsize, Ordering},
 };
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use nufmt::{Config, FormatError, debug_tokens, format_source};
 use rayon::prelude::*;
+
+/// When to use colored output.
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+enum ColorChoice {
+    /// Use color when outputting to a terminal.
+    #[default]
+    Auto,
+    /// Always use color.
+    Always,
+    /// Never use color.
+    Never,
+}
+
+impl ColorChoice {
+    /// Returns true if color should be used based on this choice and whether stderr is a terminal.
+    fn should_use_color(self) -> bool {
+        match self {
+            Self::Auto => std::io::stderr().is_terminal(),
+            Self::Always => true,
+            Self::Never => false,
+        }
+    }
+}
+
+/// ANSI color codes for terminal output.
+mod color {
+    pub const RESET: &str = "\x1b[0m";
+    pub const GREEN: &str = "\x1b[32m";
+    pub const YELLOW: &str = "\x1b[33m";
+    pub const RED: &str = "\x1b[31m";
+    pub const BOLD: &str = "\x1b[1m";
+}
+
+/// Result of formatting a single file.
+enum FormatResult {
+    /// File was formatted (or would be formatted in check mode).
+    Changed,
+    /// File was already correctly formatted.
+    Unchanged,
+    /// An error occurred while formatting.
+    Error(String),
+}
 
 /// A code formatter for Nushell
 #[derive(Parser, Debug)]
@@ -32,6 +74,10 @@ struct Args {
     /// Path to config file (default: .nufmt.toml in current or parent directories)
     #[arg(long, short)]
     config: Option<PathBuf>,
+
+    /// When to use colored output
+    #[arg(long, value_enum, default_value_t = ColorChoice::Auto)]
+    color: ColorChoice,
 
     /// Debug: show parser tokens instead of formatting
     #[arg(long, hide = true)]
@@ -107,39 +153,39 @@ fn main() -> ExitCode {
 
         let total = files.len();
         let changed = AtomicUsize::new(0);
-        let any_error = AtomicBool::new(false);
+        let errors = AtomicUsize::new(0);
+        let use_color = args.color.should_use_color();
 
-        files
+        // Process files and collect results for printing
+        let results: Vec<_> = files
             .par_iter()
-            .for_each(|path| match format_file(path, &args, &config) {
-                Ok(would_change) => {
-                    if would_change {
+            .map(|path| {
+                let result = match format_file(path, &args, &config) {
+                    Ok(true) => {
                         changed.fetch_add(1, Ordering::Relaxed);
+                        FormatResult::Changed
                     }
-                }
-                Err(e) => {
-                    eprintln!("{}: {e}", path.display());
-                    any_error.store(true, Ordering::Relaxed);
-                }
-            });
+                    Ok(false) => FormatResult::Unchanged,
+                    Err(e) => {
+                        errors.fetch_add(1, Ordering::Relaxed);
+                        FormatResult::Error(e.to_string())
+                    }
+                };
+                (path.clone(), result)
+            })
+            .collect();
+
+        // Print results for each file
+        for (path, result) in &results {
+            print_file_result(path, result, &args, use_color);
+        }
 
         // Print summary
         let changed_count = changed.load(Ordering::Relaxed);
-        if args.check {
-            if changed_count > 0 {
-                eprintln!(
-                    "{changed_count} of {total} file{} would be reformatted",
-                    if total == 1 { "" } else { "s" }
-                );
-            }
-        } else if changed_count > 0 {
-            eprintln!(
-                "Formatted {changed_count} of {total} file{}",
-                if total == 1 { "" } else { "s" }
-            );
-        }
+        let error_count = errors.load(Ordering::Relaxed);
+        print_summary(&args, total, changed_count, error_count, use_color);
 
-        if any_error.load(Ordering::Relaxed) {
+        if error_count > 0 {
             return ExitCode::from(2);
         }
         if args.check && changed_count > 0 {
@@ -148,6 +194,122 @@ fn main() -> ExitCode {
     }
 
     ExitCode::SUCCESS
+}
+
+/// Print the result of formatting a single file with optional color.
+fn print_file_result(path: &Path, result: &FormatResult, args: &Args, use_color: bool) {
+    let path_str = path.display();
+
+    match result {
+        FormatResult::Changed => {
+            if args.check {
+                if use_color {
+                    eprintln!(
+                        "{}{}!{} {} (would reformat)",
+                        color::BOLD,
+                        color::YELLOW,
+                        color::RESET,
+                        path_str
+                    );
+                } else {
+                    eprintln!("! {path_str} (would reformat)");
+                }
+            } else if use_color {
+                eprintln!(
+                    "{}{}✓{} {}",
+                    color::BOLD,
+                    color::GREEN,
+                    color::RESET,
+                    path_str
+                );
+            } else {
+                eprintln!("✓ {path_str}");
+            }
+        }
+        FormatResult::Unchanged => {
+            // Don't print anything for unchanged files (less noisy output)
+        }
+        FormatResult::Error(msg) => {
+            if use_color {
+                eprintln!(
+                    "{}{}✗{} {}: {}",
+                    color::BOLD,
+                    color::RED,
+                    color::RESET,
+                    path_str,
+                    msg
+                );
+            } else {
+                eprintln!("✗ {path_str}: {msg}");
+            }
+        }
+    }
+}
+
+/// Print a summary of the formatting operation.
+fn print_summary(args: &Args, total: usize, changed: usize, errors: usize, use_color: bool) {
+    if total == 0 {
+        return;
+    }
+
+    let unchanged = total - changed - errors;
+    let files_word = if total == 1 { "file" } else { "files" };
+
+    if args.check {
+        // Check mode summary
+        if changed == 0 && errors == 0 {
+            if use_color {
+                eprintln!(
+                    "\n{}{}✓{} All {} {} formatted correctly",
+                    color::BOLD,
+                    color::GREEN,
+                    color::RESET,
+                    total,
+                    files_word
+                );
+            } else {
+                eprintln!("\n✓ All {total} {files_word} formatted correctly");
+            }
+        } else {
+            let mut parts = Vec::new();
+            if changed > 0 {
+                parts.push(format!("{changed} would be reformatted"));
+            }
+            if unchanged > 0 {
+                parts.push(format!("{unchanged} already formatted"));
+            }
+            if errors > 0 {
+                parts.push(format!("{errors} failed"));
+            }
+            eprintln!("\n{total} {files_word}: {}", parts.join(", "));
+        }
+    } else {
+        // Format mode summary
+        if changed == 0 && errors == 0 {
+            if use_color {
+                eprintln!(
+                    "\n{}{}✓{} All {total} {files_word} already formatted",
+                    color::BOLD,
+                    color::GREEN,
+                    color::RESET,
+                );
+            } else {
+                eprintln!("\n✓ All {total} {files_word} already formatted");
+            }
+        } else {
+            let mut parts = Vec::new();
+            if changed > 0 {
+                parts.push(format!("{changed} formatted"));
+            }
+            if unchanged > 0 {
+                parts.push(format!("{unchanged} unchanged"));
+            }
+            if errors > 0 {
+                parts.push(format!("{errors} failed"));
+            }
+            eprintln!("\n{total} {files_word}: {}", parts.join(", "));
+        }
+    }
 }
 
 /// Default config file content with documentation.
@@ -243,6 +405,7 @@ fn find_config_file() -> Option<PathBuf> {
 /// Expand glob patterns to file paths.
 ///
 /// If a pattern contains no glob characters, it's treated as a literal path.
+/// Directories are recursively searched for `.nu` files.
 /// Only returns files (not directories).
 fn expand_patterns(patterns: &[String]) -> Result<Vec<PathBuf>, Error> {
     let mut files = Vec::new();
@@ -254,17 +417,38 @@ fn expand_patterns(patterns: &[String]) -> Result<Vec<PathBuf>, Error> {
             for entry in glob::glob(pattern)? {
                 match entry {
                     Ok(path) if path.is_file() => files.push(path),
-                    Ok(_) => {} // Skip directories
+                    Ok(path) if path.is_dir() => collect_nu_files(&path, &mut files),
+                    Ok(_) => {} // Skip other types
                     Err(e) => eprintln!("warning: {e}"),
                 }
             }
         } else {
-            // Treat as literal path
-            files.push(PathBuf::from(pattern));
+            let path = PathBuf::from(pattern);
+            if path.is_dir() {
+                collect_nu_files(&path, &mut files);
+            } else {
+                files.push(path);
+            }
         }
     }
 
     Ok(files)
+}
+
+/// Recursively collect all `.nu` files in a directory.
+fn collect_nu_files(dir: &Path, files: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_nu_files(&path, files);
+        } else if path.extension().is_some_and(|ext| ext == "nu") {
+            files.push(path);
+        }
+    }
 }
 
 /// Format source code from stdin.
@@ -467,6 +651,7 @@ mod tests {
             check: false,
             stdin: false,
             config: None,
+            color: ColorChoice::Auto,
             debug_tokens: false,
         };
 
@@ -504,6 +689,7 @@ mod tests {
             check: false,
             stdin: false,
             config: None,
+            color: ColorChoice::Auto,
             debug_tokens: false,
         };
         let config = Config::default();
@@ -530,6 +716,7 @@ mod tests {
             check: true, // Check mode - don't modify
             stdin: false,
             config: None,
+            color: ColorChoice::Auto,
             debug_tokens: false,
         };
         let config = Config::default();
@@ -556,6 +743,7 @@ mod tests {
             check: false,
             stdin: false,
             config: None,
+            color: ColorChoice::Auto,
             debug_tokens: false,
         };
         let config = Config::default();

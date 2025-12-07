@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Directory formatting: pass a directory to recursively format all `.nu` files
+- Colored output with `--color` flag (auto/always/never)
+- Per-file status indicators (✓ formatted, ! would reformat, ✗ error)
+
 ## [0.1.0] - 2025-12-07
 
 ### Added
