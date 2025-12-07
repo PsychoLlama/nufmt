@@ -17,6 +17,6 @@ Nushell code formatter. See `ref/plan.md` for implementation plan.
 
 ## Debugging
 
-Hidden commands for debugging the formatter:
+Hidden subcommands for debugging the formatter:
 
-- `echo 'code' | nufmt --debug-tokens` - show parser tokens for stdin
+- `echo 'code' | nufmt debug tokens` - show parser tokens for stdin

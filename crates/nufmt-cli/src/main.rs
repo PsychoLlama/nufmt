@@ -78,10 +78,6 @@ struct Args {
     /// When to use colored output
     #[arg(long, value_enum, default_value_t = ColorChoice::Auto)]
     color: ColorChoice,
-
-    /// Debug: show parser tokens instead of formatting
-    #[arg(long, hide = true)]
-    debug_tokens: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -92,6 +88,19 @@ enum Command {
         #[arg(long)]
         force: bool,
     },
+
+    /// Debugging commands (hidden)
+    #[command(hide = true)]
+    Debug {
+        #[command(subcommand)]
+        command: DebugCommand,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum DebugCommand {
+    /// Show parser tokens for stdin
+    Tokens,
 }
 
 fn main() -> ExitCode {
@@ -101,18 +110,8 @@ fn main() -> ExitCode {
     if let Some(command) = args.command {
         return match command {
             Command::Init { force } => run_init(force),
+            Command::Debug { command } => run_debug(&command),
         };
-    }
-
-    // Handle debug tokens mode
-    if args.debug_tokens {
-        let mut source = String::new();
-        if let Err(e) = io::stdin().read_to_string(&mut source) {
-            eprintln!("error: {e}");
-            return ExitCode::from(2);
-        }
-        print!("{}", debug_tokens(&source));
-        return ExitCode::SUCCESS;
     }
 
     // Load config
@@ -336,6 +335,21 @@ max_width = 100
 # Default: "double"
 quote_style = "double"
 "#;
+
+/// Run a debug subcommand.
+fn run_debug(command: &DebugCommand) -> ExitCode {
+    match command {
+        DebugCommand::Tokens => {
+            let mut source = String::new();
+            if let Err(e) = io::stdin().read_to_string(&mut source) {
+                eprintln!("error: {e}");
+                return ExitCode::from(2);
+            }
+            print!("{}", debug_tokens(&source));
+            ExitCode::SUCCESS
+        }
+    }
+}
 
 /// Initialize a .nufmt.toml config file in the current directory.
 fn run_init(force: bool) -> ExitCode {
@@ -652,7 +666,6 @@ mod tests {
             stdin: false,
             config: None,
             color: ColorChoice::Auto,
-            debug_tokens: false,
         };
 
         // When no config file exists, should use defaults
@@ -690,7 +703,6 @@ mod tests {
             stdin: false,
             config: None,
             color: ColorChoice::Auto,
-            debug_tokens: false,
         };
         let config = Config::default();
 
@@ -717,7 +729,6 @@ mod tests {
             stdin: false,
             config: None,
             color: ColorChoice::Auto,
-            debug_tokens: false,
         };
         let config = Config::default();
 
@@ -744,7 +755,6 @@ mod tests {
             stdin: false,
             config: None,
             color: ColorChoice::Auto,
-            debug_tokens: false,
         };
         let config = Config::default();
 
