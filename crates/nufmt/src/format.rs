@@ -560,60 +560,63 @@ impl<'a> Formatter<'a> {
     fn convert_string_quotes(&self, token: &str) -> String {
         match self.config.quote_style {
             QuoteStyle::Preserve => token.to_string(),
-            QuoteStyle::Double => self.to_double_quotes(token),
-            QuoteStyle::Single => self.to_single_quotes(token),
+            QuoteStyle::Double => to_double_quotes(token),
+            QuoteStyle::Single => to_single_quotes(token),
         }
     }
+}
 
-    /// Convert a string to double quotes if possible.
-    fn to_double_quotes(&self, token: &str) -> String {
-        // Already double-quoted
-        if token.starts_with('"') {
+/// Convert a string to double quotes if possible.
+///
+/// Returns the original string if already double-quoted, contains double quotes,
+/// or contains backslashes (which would become escape sequences).
+fn to_double_quotes(token: &str) -> String {
+    // Already double-quoted
+    if token.starts_with('"') {
+        return token.to_string();
+    }
+
+    // Single-quoted string: 'content'
+    // Nushell single quotes are raw strings with no escape sequences.
+    if let Some(content) = token.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')) {
+        // Can't convert if content contains double quotes
+        if content.contains('"') {
             return token.to_string();
         }
-
-        // Single-quoted string: 'content'
-        if let Some(content) = token.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')) {
-            // Can't convert if content contains unescaped double quotes
-            if content.contains('"') {
-                return token.to_string();
-            }
-            // Convert escapes: \' -> ', and add \" for any " (but we already checked there are none)
-            // In Nushell single quotes, \' is literal backslash-quote, not an escape
-            // Actually single quotes are raw - no escapes. So just wrap in double quotes.
-            // But we need to escape any backslash-n etc that would become escapes in double quotes
-            if content.contains('\\') {
-                // Content has backslashes that would be interpreted as escapes in double quotes
-                return token.to_string();
-            }
-            return format!("\"{content}\"");
-        }
-
-        token.to_string()
-    }
-
-    /// Convert a string to single quotes if possible.
-    fn to_single_quotes(&self, token: &str) -> String {
-        // Already single-quoted
-        if token.starts_with('\'') {
+        // Can't convert if content has backslashes (would become escapes in double quotes)
+        if content.contains('\\') {
             return token.to_string();
         }
-
-        // Double-quoted string: "content"
-        if let Some(content) = token.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
-            // Can't convert if content contains single quotes
-            if content.contains('\'') {
-                return token.to_string();
-            }
-            // Can't convert if content has escape sequences (they won't work in single quotes)
-            if content.contains('\\') {
-                return token.to_string();
-            }
-            return format!("'{content}'");
-        }
-
-        token.to_string()
+        return format!("\"{content}\"");
     }
+
+    token.to_string()
+}
+
+/// Convert a string to single quotes if possible.
+///
+/// Returns the original string if already single-quoted, contains single quotes,
+/// or contains escape sequences (which wouldn't work in single quotes).
+fn to_single_quotes(token: &str) -> String {
+    // Already single-quoted
+    if token.starts_with('\'') {
+        return token.to_string();
+    }
+
+    // Double-quoted string: "content"
+    if let Some(content) = token.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+        // Can't convert if content contains single quotes
+        if content.contains('\'') {
+            return token.to_string();
+        }
+        // Can't convert if content has escape sequences (they won't work in single quotes)
+        if content.contains('\\') {
+            return token.to_string();
+        }
+        return format!("'{content}'");
+    }
+
+    token.to_string()
 }
 
 fn format_block(
