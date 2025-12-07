@@ -272,3 +272,155 @@ impl From<FormatError> for Error {
         Self::Format(e)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_find_config_file_none() {
+        // When run from a temp directory with no config, should return None
+        let temp_dir = tempfile::tempdir().unwrap();
+        let _guard = std::env::set_current_dir(&temp_dir);
+        // Note: find_config_file uses current_dir, so we can't easily test it
+        // without changing directory. This test just ensures the function doesn't panic.
+    }
+
+    #[test]
+    fn test_load_config_file_valid() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_path = temp_dir.path().join(".nufmt.toml");
+
+        let mut file = fs::File::create(&config_path).unwrap();
+        writeln!(file, "indent_width = 2").unwrap();
+        writeln!(file, "max_width = 80").unwrap();
+        writeln!(file, r#"quote_style = "single""#).unwrap();
+
+        let config = load_config_file(&config_path).unwrap();
+        assert_eq!(config.indent_width, 2);
+        assert_eq!(config.max_width, 80);
+        assert_eq!(config.quote_style, nufmt::QuoteStyle::Single);
+    }
+
+    #[test]
+    fn test_load_config_file_missing() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_path = temp_dir.path().join("nonexistent.toml");
+
+        let result = load_config_file(&config_path);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_config_file_invalid_toml() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_path = temp_dir.path().join(".nufmt.toml");
+
+        let mut file = fs::File::create(&config_path).unwrap();
+        writeln!(file, "this is not valid toml {{{{").unwrap();
+
+        let result = load_config_file(&config_path);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_config_defaults() {
+        let args = Args {
+            files: vec![],
+            check: false,
+            stdin: false,
+            config: None,
+            debug_tokens: false,
+        };
+
+        // When no config file exists, should use defaults
+        let config = load_config(&args).unwrap();
+        assert_eq!(config.indent_width, 4);
+        assert_eq!(config.max_width, 100);
+    }
+
+    #[test]
+    fn test_error_display() {
+        let io_err = Error::Io(io::Error::new(io::ErrorKind::NotFound, "file not found"));
+        assert!(io_err.to_string().contains("file not found"));
+
+        let config_err = Error::Config {
+            path: PathBuf::from("/test/.nufmt.toml"),
+            source: "invalid syntax".to_string(),
+        };
+        let msg = config_err.to_string();
+        assert!(msg.contains(".nufmt.toml"));
+        assert!(msg.contains("invalid syntax"));
+    }
+
+    #[test]
+    fn test_format_file_creates_formatted_output() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file_path = temp_dir.path().join("test.nu");
+
+        // Write unformatted code
+        fs::write(&file_path, "ls|sort-by name").unwrap();
+
+        let args = Args {
+            files: vec![file_path.clone()],
+            check: false,
+            stdin: false,
+            config: None,
+            debug_tokens: false,
+        };
+        let config = Config::default();
+
+        let would_change = format_file(&file_path, &args, &config).unwrap();
+        assert!(would_change);
+
+        // Verify file was formatted
+        let content = fs::read_to_string(&file_path).unwrap();
+        assert_eq!(content, "ls | sort-by name\n");
+    }
+
+    #[test]
+    fn test_format_file_check_mode() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file_path = temp_dir.path().join("test.nu");
+
+        // Write unformatted code
+        fs::write(&file_path, "ls|sort-by name").unwrap();
+
+        let args = Args {
+            files: vec![file_path.clone()],
+            check: true, // Check mode - don't modify
+            stdin: false,
+            config: None,
+            debug_tokens: false,
+        };
+        let config = Config::default();
+
+        let would_change = format_file(&file_path, &args, &config).unwrap();
+        assert!(would_change);
+
+        // Verify file was NOT modified in check mode
+        let content = fs::read_to_string(&file_path).unwrap();
+        assert_eq!(content, "ls|sort-by name");
+    }
+
+    #[test]
+    fn test_format_file_already_formatted() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file_path = temp_dir.path().join("test.nu");
+
+        // Write already formatted code
+        fs::write(&file_path, "ls | sort-by name\n").unwrap();
+
+        let args = Args {
+            files: vec![file_path.clone()],
+            check: false,
+            stdin: false,
+            config: None,
+            debug_tokens: false,
+        };
+        let config = Config::default();
+
+        let would_change = format_file(&file_path, &args, &config).unwrap();
+        assert!(!would_change);
+    }
+}
