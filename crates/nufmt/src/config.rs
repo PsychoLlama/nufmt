@@ -1,5 +1,8 @@
+use serde::Deserialize;
+
 /// Formatting configuration options.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
 pub struct Config {
     /// Number of spaces per indentation level.
     pub indent_width: usize,

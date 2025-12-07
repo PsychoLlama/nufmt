@@ -1,7 +1,7 @@
 use std::{
     fs,
     io::{self, Read, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::ExitCode,
 };
 
@@ -24,6 +24,10 @@ struct Args {
     #[arg(long)]
     stdin: bool,
 
+    /// Path to config file (default: .nufmt.toml in current or parent directories)
+    #[arg(long, short)]
+    config: Option<PathBuf>,
+
     /// Debug: show parser tokens instead of formatting
     #[arg(long, hide = true)]
     debug_tokens: bool,
@@ -43,8 +47,17 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
+    // Load config
+    let config = match load_config(&args) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return ExitCode::from(2);
+        }
+    };
+
     if args.stdin || args.files.is_empty() {
-        match format_stdin(&args) {
+        match format_stdin(&args, &config) {
             Ok(needs_formatting) => {
                 if args.check && needs_formatting {
                     return ExitCode::from(1);
@@ -60,7 +73,7 @@ fn main() -> ExitCode {
         let mut any_error = false;
 
         for path in &args.files {
-            match format_file(path, &args) {
+            match format_file(path, &args, &config) {
                 Ok(would_change) => {
                     if would_change {
                         any_would_change = true;
@@ -84,12 +97,57 @@ fn main() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn format_stdin(args: &Args) -> Result<bool, Error> {
+/// Load configuration from file or use defaults.
+fn load_config(args: &Args) -> Result<Config, Error> {
+    // If explicit config path provided, use it
+    if let Some(path) = &args.config {
+        let content = fs::read_to_string(path).map_err(|e| Error::Config {
+            path: path.clone(),
+            source: e.to_string(),
+        })?;
+        let config: Config = toml::from_str(&content).map_err(|e| Error::Config {
+            path: path.clone(),
+            source: e.to_string(),
+        })?;
+        return Ok(config);
+    }
+
+    // Search for .nufmt.toml in current and parent directories
+    if let Some(path) = find_config_file() {
+        let content = fs::read_to_string(&path).map_err(|e| Error::Config {
+            path: path.clone(),
+            source: e.to_string(),
+        })?;
+        let config: Config = toml::from_str(&content).map_err(|e| Error::Config {
+            path,
+            source: e.to_string(),
+        })?;
+        return Ok(config);
+    }
+
+    // No config file found, use defaults
+    Ok(Config::default())
+}
+
+/// Search for .nufmt.toml in current directory and ancestors.
+fn find_config_file() -> Option<PathBuf> {
+    let mut dir = std::env::current_dir().ok()?;
+    loop {
+        let config_path = dir.join(".nufmt.toml");
+        if config_path.exists() {
+            return Some(config_path);
+        }
+        if !dir.pop() {
+            return None;
+        }
+    }
+}
+
+fn format_stdin(args: &Args, config: &Config) -> Result<bool, Error> {
     let mut source = String::new();
     io::stdin().read_to_string(&mut source)?;
 
-    let config = Config::default();
-    let formatted = format_source(&source, &config)?;
+    let formatted = format_source(&source, config)?;
 
     let would_change = source != formatted;
 
@@ -104,10 +162,9 @@ fn format_stdin(args: &Args) -> Result<bool, Error> {
     Ok(would_change)
 }
 
-fn format_file(path: &PathBuf, args: &Args) -> Result<bool, Error> {
+fn format_file(path: &Path, args: &Args, config: &Config) -> Result<bool, Error> {
     let source = fs::read_to_string(path)?;
-    let config = Config::default();
-    let formatted = format_source(&source, &config)?;
+    let formatted = format_source(&source, config)?;
 
     let would_change = source != formatted;
 
@@ -179,6 +236,7 @@ fn print_diff(name: &str, original: &str, formatted: &str) {
 enum Error {
     Io(io::Error),
     Format(FormatError),
+    Config { path: PathBuf, source: String },
 }
 
 impl std::fmt::Display for Error {
@@ -186,6 +244,9 @@ impl std::fmt::Display for Error {
         match self {
             Self::Io(e) => write!(f, "{e}"),
             Self::Format(e) => write!(f, "{e}"),
+            Self::Config { path, source } => {
+                write!(f, "config error in {}: {source}", path.display())
+            }
         }
     }
 }

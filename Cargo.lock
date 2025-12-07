@@ -2143,6 +2143,7 @@ dependencies = [
  "nu-command",
  "nu-parser",
  "nu-protocol",
+ "serde",
 ]
 
 [[package]]
@@ -2151,6 +2152,8 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "nufmt",
+ "serde",
+ "toml",
 ]
 
 [[package]]
