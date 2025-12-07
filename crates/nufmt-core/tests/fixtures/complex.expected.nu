@@ -1,13 +1,13 @@
 # Complex formatting test
 let data = {
-  name: "test"
-  value: 42
+  name: "test",
+  value: 42,
 }
 
 let list = [
-  1
-  2
-  3
+  1,
+  2,
+  3,
 ]
 
 let closure = {|x,y| $x + $y }

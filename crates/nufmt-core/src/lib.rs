@@ -5,5 +5,5 @@
 mod config;
 mod format;
 
-pub use config::{BracketSpacing, Config, ConfigError, QuoteStyle};
+pub use config::{BracketSpacing, Config, ConfigError, QuoteStyle, TrailingComma};
 pub use format::{FormatError, SourceLocation, debug_tokens, format_source};

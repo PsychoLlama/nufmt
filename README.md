@@ -54,6 +54,14 @@ max_width = 100
 
 # Quote style: "preserve", "double", or "single"
 quote_style = "double"
+
+# Spacing inside brackets/braces: "spaced" or "compact"
+# spaced: { a: 1 }, [ 1, 2, 3 ]
+# compact: {a: 1}, [1, 2, 3]
+bracket_spacing = "spaced"
+
+# Trailing commas in multiline collections: "always" or "never"
+trailing_comma = "always"
 ```
 
 The formatter searches for `.nufmt.toml` in the current directory and its ancestors. You can also specify a config file explicitly:
@@ -75,9 +83,15 @@ Arguments:
   [PATTERNS]...  Files or glob patterns to format
 
 Options:
-      --check            Check if files are formatted without modifying them
-      --stdin            Read from stdin, write to stdout
-  -c, --config <CONFIG>  Path to config file
-  -h, --help             Print help
-  -V, --version          Print version
+      --check                          Check if files are formatted without modifying them
+      --stdin                          Read from stdin, write to stdout
+  -c, --config <CONFIG>                Path to config file
+      --color <COLOR>                  When to use colored output [default: auto] [values: auto, always, never]
+      --indent-width <INDENT_WIDTH>    Number of spaces per indentation level (1-16)
+      --max-width <MAX_WIDTH>          Maximum line width before breaking (20-500)
+      --quote-style <QUOTE_STYLE>      Preferred quote style [values: preserve, double, single]
+      --bracket-spacing <SPACING>      Spacing inside brackets [values: spaced, compact]
+      --trailing-comma <TRAILING_COMMA> Trailing commas in multiline collections [values: always, never]
+  -h, --help                           Print help
+  -V, --version                        Print version
 ```

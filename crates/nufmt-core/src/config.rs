@@ -24,6 +24,17 @@ pub enum BracketSpacing {
     Compact,
 }
 
+/// Whether to add trailing commas in multiline collections.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TrailingComma {
+    /// Always add trailing commas in multiline collections (default).
+    #[default]
+    Always,
+    /// Never add trailing commas.
+    Never,
+}
+
 /// Configuration validation error.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigError {
@@ -51,6 +62,8 @@ pub struct Config {
     pub quote_style: QuoteStyle,
     /// Whether to add spaces inside brackets/braces.
     pub bracket_spacing: BracketSpacing,
+    /// Whether to add trailing commas in multiline collections.
+    pub trailing_comma: TrailingComma,
 }
 
 impl Config {
@@ -87,6 +100,7 @@ impl Default for Config {
             max_width: 100,
             quote_style: QuoteStyle::default(),
             bracket_spacing: BracketSpacing::default(),
+            trailing_comma: TrailingComma::default(),
         }
     }
 }
@@ -144,6 +158,7 @@ mod tests {
             max_width: 80,
             quote_style: QuoteStyle::Single,
             bracket_spacing: BracketSpacing::Spaced,
+            trailing_comma: TrailingComma::Always,
         };
         assert!(config.validate().is_ok());
     }

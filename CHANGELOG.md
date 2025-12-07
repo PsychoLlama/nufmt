@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `trailing_comma` config option and `--trailing-comma` CLI flag (always/never)
+  - `always` (default): Add trailing commas to multiline lists, records, and parameters
+  - `never`: No trailing commas
+
+### Fixed
+
+- Parenthesized expressions in multiline lists now maintain proper indentation
+
 ## [0.5.0] - 2025-12-07
 
 ### Added

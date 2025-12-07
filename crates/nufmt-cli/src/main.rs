@@ -72,6 +72,24 @@ impl From<BracketSpacingArg> for nufmt_core::BracketSpacing {
     }
 }
 
+/// Trailing comma style for CLI arguments.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum TrailingCommaArg {
+    /// Always add trailing commas in multiline collections.
+    Always,
+    /// Never add trailing commas.
+    Never,
+}
+
+impl From<TrailingCommaArg> for nufmt_core::TrailingComma {
+    fn from(arg: TrailingCommaArg) -> Self {
+        match arg {
+            TrailingCommaArg::Always => Self::Always,
+            TrailingCommaArg::Never => Self::Never,
+        }
+    }
+}
+
 /// ANSI color codes for terminal output.
 mod color {
     pub const RESET: &str = "\x1b[0m";
@@ -133,6 +151,10 @@ struct Args {
     /// Spacing inside brackets and braces
     #[arg(long, value_enum)]
     bracket_spacing: Option<BracketSpacingArg>,
+
+    /// Whether to add trailing commas in multiline collections
+    #[arg(long, value_enum)]
+    trailing_comma: Option<TrailingCommaArg>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -448,6 +470,9 @@ fn load_config(args: &Args) -> Result<Config, Error> {
     if let Some(bracket_spacing) = args.bracket_spacing {
         config.bracket_spacing = bracket_spacing.into();
     }
+    if let Some(trailing_comma) = args.trailing_comma {
+        config.trailing_comma = trailing_comma.into();
+    }
 
     // Validate the final config (in case CLI args are out of range)
     config.validate().map_err(|e| Error::Config {
@@ -743,6 +768,7 @@ mod tests {
             max_width: None,
             quote_style: None,
             bracket_spacing: None,
+            trailing_comma: None,
         };
 
         // When no config file exists, should use defaults
@@ -784,6 +810,7 @@ mod tests {
             max_width: None,
             quote_style: None,
             bracket_spacing: None,
+            trailing_comma: None,
         };
         let config = Config::default();
 
@@ -814,6 +841,7 @@ mod tests {
             max_width: None,
             quote_style: None,
             bracket_spacing: None,
+            trailing_comma: None,
         };
         let config = Config::default();
 
@@ -844,6 +872,7 @@ mod tests {
             max_width: None,
             quote_style: None,
             bracket_spacing: None,
+            trailing_comma: None,
         };
         let config = Config::default();
 

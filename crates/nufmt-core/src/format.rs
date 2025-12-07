@@ -5,7 +5,7 @@ use nu_command::add_shell_command_context;
 use nu_parser::{FlatShape, flatten_block, parse};
 use nu_protocol::{ParseError, Span, engine::StateWorkingSet};
 
-use crate::{BracketSpacing, Config, QuoteStyle};
+use crate::{BracketSpacing, Config, QuoteStyle, TrailingComma};
 
 /// Create an engine state with all Nushell commands available for parsing.
 fn create_engine_state() -> nu_protocol::engine::EngineState {
@@ -415,7 +415,11 @@ impl<'a> Formatter<'a> {
         let has_newline = token.contains('\n');
 
         if has_open {
+            if self.line_start {
+                self.write_indent();
+            }
             self.push_char('(');
+            self.line_start = false;
             if has_newline {
                 self.indent_level += 1;
                 self.push_newline();
@@ -857,6 +861,7 @@ impl<'a> Formatter<'a> {
     ///
     /// Handles brackets `{}[]`, colons `:`, and commas `,` with proper
     /// spacing normalization (e.g., `,  ` becomes `, `).
+    #[allow(clippy::too_many_lines)]
     fn process_delimiter_token(&mut self, token: &str) {
         let trimmed = token.trim();
         let has_newline = token.contains('\n');
@@ -890,11 +895,16 @@ impl<'a> Formatter<'a> {
         // Handle closing brackets - may have leading newline
         if trimmed == "}" || trimmed == "]" {
             let was_multiline = self.collection_multiline_stack.pop().unwrap_or(false);
-            if was_multiline && !self.output.ends_with('\n') {
-                self.indent_level = self.indent_level.saturating_sub(1);
-                self.push_newline();
-                self.write_indent();
-            } else if !was_multiline && self.config.bracket_spacing == BracketSpacing::Spaced {
+            if was_multiline {
+                // Handle trailing comma for multiline collections
+                self.maybe_add_trailing_comma();
+
+                if !self.output.ends_with('\n') {
+                    self.indent_level = self.indent_level.saturating_sub(1);
+                    self.push_newline();
+                    self.write_indent();
+                }
+            } else if self.config.bracket_spacing == BracketSpacing::Spaced {
                 // Add space before closing bracket for single-line collections
                 if !self.output.ends_with(' ') {
                     self.push_char(' ');
@@ -923,12 +933,53 @@ impl<'a> Formatter<'a> {
             return;
         }
 
-        // Handle standalone newline (row separator in multiline records)
-        if trimmed.is_empty() && has_newline {
-            if self.should_be_multiline() {
-                self.push_newline();
+        // Handle newline row separators (may include comments)
+        if has_newline {
+            // Check if there's a comment in the token
+            if let Some(comment_start) = token.find('#') {
+                let comment_end = token[comment_start..]
+                    .find('\n')
+                    .map_or(token.len(), |p| comment_start + p);
+                let comment = token[comment_start..comment_end].trim_end();
+
+                if self.should_be_multiline() {
+                    // Add trailing comma before comment if configured
+                    if self.config.trailing_comma == TrailingComma::Always {
+                        let output_trimmed = self.output.trim_end();
+                        if !output_trimmed.ends_with(',')
+                            && !output_trimmed.ends_with('[')
+                            && !output_trimmed.ends_with('{')
+                        {
+                            self.push_char(',');
+                        }
+                    }
+                    // Add space before comment if needed
+                    if !self.output.ends_with(' ') {
+                        self.push_char(' ');
+                    }
+                    self.push_str(comment);
+                    self.push_newline();
+                }
+                return;
             }
-            return;
+
+            // Standalone newline without comment
+            if trimmed.is_empty() {
+                if self.should_be_multiline() {
+                    // Add trailing comma after each item if configured
+                    if self.config.trailing_comma == TrailingComma::Always {
+                        let output_trimmed = self.output.trim_end();
+                        if !output_trimmed.ends_with(',')
+                            && !output_trimmed.ends_with('[')
+                            && !output_trimmed.ends_with('{')
+                        {
+                            self.push_char(',');
+                        }
+                    }
+                    self.push_newline();
+                }
+                return;
+            }
         }
 
         // Default: just write the trimmed token
@@ -946,6 +997,51 @@ impl<'a> Formatter<'a> {
             self.output.push(' ');
         }
         self.current_line_len = indent_size;
+    }
+
+    /// Add a trailing comma if configured and not already present.
+    ///
+    /// This handles the case where the output might end with a comment,
+    /// inserting the comma before the comment if needed.
+    fn maybe_add_trailing_comma(&mut self) {
+        if self.config.trailing_comma == TrailingComma::Never {
+            return;
+        }
+
+        // Find the last non-whitespace, non-comment content
+        let trimmed = self.output.trim_end();
+
+        // Already has a trailing comma
+        if trimmed.ends_with(',') {
+            return;
+        }
+
+        // Check if the line ends with a comment
+        if let Some(last_newline) = self.output.rfind('\n') {
+            let last_line = &self.output[last_newline + 1..];
+            if let Some(comment_start) = last_line.find('#') {
+                // Insert comma before the comment
+                let insert_pos = last_newline + 1 + comment_start;
+                // Find where to insert (skip any whitespace before comment)
+                let before_comment = &self.output[..insert_pos];
+                let trimmed_before = before_comment.trim_end();
+                if !trimmed_before.ends_with(',') {
+                    let comma_pos = trimmed_before.len();
+                    self.output.insert(comma_pos, ',');
+                    self.current_line_len += 1;
+                }
+                return;
+            }
+        }
+
+        // No comment, just append comma at the end (before any trailing whitespace)
+        let trimmed_len = trimmed.len();
+        self.output.truncate(trimmed_len);
+        self.output.push(',');
+        self.current_line_len = self
+            .output
+            .rfind('\n')
+            .map_or(self.output.len(), |pos| self.output.len() - pos - 1);
     }
 
     /// Push a single character to the output, tracking line length.
@@ -1256,13 +1352,24 @@ mod tests {
         let source = "{\na: 1\nb: 2\n}";
         let config = Config::default();
         let result = format_source(source, &config).unwrap();
-        assert_eq!(result, "{\n  a: 1\n  b: 2\n}\n");
+        assert_eq!(result, "{\n  a: 1,\n  b: 2,\n}\n");
     }
 
     #[test]
     fn test_multiline_list() {
         let source = "[\n1\n2\n3\n]";
         let config = Config::default();
+        let result = format_source(source, &config).unwrap();
+        assert_eq!(result, "[\n  1,\n  2,\n  3,\n]\n");
+    }
+
+    #[test]
+    fn test_multiline_list_no_trailing_comma() {
+        let source = "[\n1\n2\n3\n]";
+        let config = Config {
+            trailing_comma: TrailingComma::Never,
+            ..Default::default()
+        };
         let result = format_source(source, &config).unwrap();
         assert_eq!(result, "[\n  1\n  2\n  3\n]\n");
     }
