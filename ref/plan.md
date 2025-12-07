@@ -64,5 +64,11 @@ nufmt-cli (binary)
 - Glob pattern support for file discovery
 - Config file (`.nufmt.toml`) for per-project settings
 - Better error messages with source location
-- Multiline record/list formatting
-- Closure parameter handling
+
+## Completed Beyond Original Plan
+
+- ✓ Closure parameter handling (`{|x, y| ...}`)
+- ✓ Multiline record/list formatting with indentation
+- ✓ String interpolation preservation (`$"Hello, ($name)"`)
+- ✓ Semicolon/comma spacing normalization
+- ✓ Hidden `--debug-tokens` flag for development
