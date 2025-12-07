@@ -33,6 +33,27 @@ impl ColorChoice {
     }
 }
 
+/// Quote style for CLI arguments.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum QuoteStyleArg {
+    /// Keep existing quote style.
+    Preserve,
+    /// Prefer double quotes.
+    Double,
+    /// Prefer single quotes.
+    Single,
+}
+
+impl From<QuoteStyleArg> for nufmt::QuoteStyle {
+    fn from(arg: QuoteStyleArg) -> Self {
+        match arg {
+            QuoteStyleArg::Preserve => Self::Preserve,
+            QuoteStyleArg::Double => Self::Double,
+            QuoteStyleArg::Single => Self::Single,
+        }
+    }
+}
+
 /// ANSI color codes for terminal output.
 mod color {
     pub const RESET: &str = "\x1b[0m";
@@ -78,6 +99,18 @@ struct Args {
     /// When to use colored output
     #[arg(long, value_enum, default_value_t = ColorChoice::Auto)]
     color: ColorChoice,
+
+    /// Number of spaces per indentation level (1-16)
+    #[arg(long)]
+    indent_width: Option<usize>,
+
+    /// Maximum line width before breaking (20-500)
+    #[arg(long)]
+    max_width: Option<usize>,
+
+    /// Preferred quote style for strings
+    #[arg(long, value_enum)]
+    quote_style: Option<QuoteStyleArg>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -369,20 +402,35 @@ fn run_init(force: bool) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// Load configuration from file or use defaults.
+/// Load configuration from file or use defaults, then apply CLI overrides.
 fn load_config(args: &Args) -> Result<Config, Error> {
-    // If explicit config path provided, use it
-    if let Some(path) = &args.config {
-        return load_config_file(path);
+    // Load base config from file or defaults
+    let mut config = if let Some(path) = &args.config {
+        load_config_file(path)?
+    } else if let Some(path) = find_config_file() {
+        load_config_file(&path)?
+    } else {
+        Config::default()
+    };
+
+    // Apply CLI overrides
+    if let Some(indent_width) = args.indent_width {
+        config.indent_width = indent_width;
+    }
+    if let Some(max_width) = args.max_width {
+        config.max_width = max_width;
+    }
+    if let Some(quote_style) = args.quote_style {
+        config.quote_style = quote_style.into();
     }
 
-    // Search for .nufmt.toml in current and parent directories
-    if let Some(path) = find_config_file() {
-        return load_config_file(&path);
-    }
+    // Validate the final config (in case CLI args are out of range)
+    config.validate().map_err(|e| Error::Config {
+        path: PathBuf::from("<cli>"),
+        source: e.to_string(),
+    })?;
 
-    // No config file found, use defaults
-    Ok(Config::default())
+    Ok(config)
 }
 
 /// Load, parse, and validate a config file.
@@ -666,6 +714,9 @@ mod tests {
             stdin: false,
             config: None,
             color: ColorChoice::Auto,
+            indent_width: None,
+            max_width: None,
+            quote_style: None,
         };
 
         // When no config file exists, should use defaults
@@ -703,6 +754,9 @@ mod tests {
             stdin: false,
             config: None,
             color: ColorChoice::Auto,
+            indent_width: None,
+            max_width: None,
+            quote_style: None,
         };
         let config = Config::default();
 
@@ -729,6 +783,9 @@ mod tests {
             stdin: false,
             config: None,
             color: ColorChoice::Auto,
+            indent_width: None,
+            max_width: None,
+            quote_style: None,
         };
         let config = Config::default();
 
@@ -755,6 +812,9 @@ mod tests {
             stdin: false,
             config: None,
             color: ColorChoice::Auto,
+            indent_width: None,
+            max_width: None,
+            quote_style: None,
         };
         let config = Config::default();
 
