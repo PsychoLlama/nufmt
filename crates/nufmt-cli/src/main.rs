@@ -12,12 +12,12 @@ use rayon::prelude::*;
 
 /// A code formatter for Nushell
 #[derive(Parser, Debug)]
-#[command(name = "nufmt", version, about)]
+#[command(name = "nufmt", version, about, arg_required_else_help = true)]
 struct Args {
     #[command(subcommand)]
     command: Option<Command>,
 
-    /// Files or glob patterns to format (reads from stdin if none provided)
+    /// Files or glob patterns to format
     #[arg()]
     patterns: Vec<String>,
 
@@ -78,7 +78,7 @@ fn main() -> ExitCode {
         }
     };
 
-    if args.stdin || args.patterns.is_empty() {
+    if args.stdin {
         match format_stdin(&args, &config) {
             Ok(needs_formatting) => {
                 if args.check && needs_formatting {
@@ -90,7 +90,7 @@ fn main() -> ExitCode {
                 return ExitCode::from(2);
             }
         }
-    } else {
+    } else if !args.patterns.is_empty() {
         // Expand glob patterns to file paths
         let files = match expand_patterns(&args.patterns) {
             Ok(f) => f,
