@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Record and list formatting
   - Comment preservation
   - Trailing newline enforcement
+  - Auto-breaking for long lines based on `max_width`:
+    - Records and lists break to multiline when exceeding width
+    - Closures and blocks break to multiline when exceeding width
+    - Command arguments wrap with continuation indentation
 - Configuration via `.nufmt.toml`:
   - `indent_width` (1-16, default: 2)
   - `max_width` (20-500, default: 100)
