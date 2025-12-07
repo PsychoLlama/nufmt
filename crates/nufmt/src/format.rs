@@ -244,7 +244,13 @@ impl<'a> Formatter<'a> {
                 }
             } else if !trimmed.is_empty() {
                 // Non-comment, non-whitespace content (like = in let, or ; separator)
-                let no_space_before = trimmed.starts_with(';') || trimmed.starts_with(',');
+                // No space before: ; , . (punctuation that attaches to previous token)
+                let no_space_before = trimmed.starts_with(';')
+                    || trimmed.starts_with(',')
+                    || trimmed.starts_with('.');
+                // No space after: . (field access)
+                let no_space_after = trimmed == ".";
+
                 if !no_space_before
                     && !self.output.is_empty()
                     && !self.line_start
@@ -257,8 +263,13 @@ impl<'a> Formatter<'a> {
                     self.line_start = false;
                 }
                 self.push_str(trimmed);
-                // Add space after certain punctuation
-                if line.ends_with(' ') || line.ends_with('\t') || has_more_lines || trimmed == ";" {
+                // Add space after certain punctuation (but not field access dots)
+                if !no_space_after
+                    && (line.ends_with(' ')
+                        || line.ends_with('\t')
+                        || has_more_lines
+                        || trimmed == ";")
+                {
                     self.push_char(' ');
                 }
             } else if has_more_lines {
