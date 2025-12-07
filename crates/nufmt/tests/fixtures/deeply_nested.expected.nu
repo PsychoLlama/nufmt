@@ -1,9 +1,9 @@
 if true {
-    if false {
-        if true {
-            if true {
-                echo "deeply nested"
-            }
-        }
+  if false {
+    if true {
+      if true {
+        echo "deeply nested"
+      }
     }
+  }
 }

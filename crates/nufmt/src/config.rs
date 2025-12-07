@@ -32,7 +32,7 @@ impl std::error::Error for ConfigError {}
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct Config {
-    /// Number of spaces per indentation level (1-16).
+    /// Number of spaces per indentation level (1-16, default: 2).
     pub indent_width: usize,
     /// Maximum line width before breaking (20-500).
     pub max_width: usize,
@@ -70,7 +70,7 @@ impl Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            indent_width: 4,
+            indent_width: 2,
             max_width: 100,
             quote_style: QuoteStyle::default(),
         }

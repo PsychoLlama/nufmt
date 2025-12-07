@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Comment preservation
   - Trailing newline enforcement
 - Configuration via `.nufmt.toml`:
-  - `indent_width` (1-16, default: 4)
+  - `indent_width` (1-16, default: 2)
   - `max_width` (20-500, default: 100)
   - `quote_style` (preserve/double/single, default: double)
 - CLI features:

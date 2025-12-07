@@ -766,7 +766,7 @@ mod tests {
         let source = "if true {\necho hello\n}";
         let config = Config::default();
         let result = format_source(source, &config).unwrap();
-        assert_eq!(result, "if true {\n    echo hello\n}\n");
+        assert_eq!(result, "if true {\n  echo hello\n}\n");
     }
 
     #[test]
@@ -774,10 +774,7 @@ mod tests {
         let source = "if true {\nif false {\necho nested\n}\n}";
         let config = Config::default();
         let result = format_source(source, &config).unwrap();
-        assert_eq!(
-            result,
-            "if true {\n    if false {\n        echo nested\n    }\n}\n"
-        );
+        assert_eq!(result, "if true {\n  if false {\n    echo nested\n  }\n}\n");
     }
 
     #[test]
@@ -834,7 +831,7 @@ mod tests {
         let source = "if true {\n# inside block\necho hello\n}";
         let config = Config::default();
         let result = format_source(source, &config).unwrap();
-        assert_eq!(result, "if true {\n    # inside block\n    echo hello\n}\n");
+        assert_eq!(result, "if true {\n  # inside block\n  echo hello\n}\n");
     }
 
     #[test]
@@ -858,7 +855,7 @@ mod tests {
         let source = "{\na: 1\nb: 2\n}";
         let config = Config::default();
         let result = format_source(source, &config).unwrap();
-        assert_eq!(result, "{\n    a: 1\n    b: 2\n}\n");
+        assert_eq!(result, "{\n  a: 1\n  b: 2\n}\n");
     }
 
     #[test]
@@ -866,7 +863,7 @@ mod tests {
         let source = "[\n1\n2\n3\n]";
         let config = Config::default();
         let result = format_source(source, &config).unwrap();
-        assert_eq!(result, "[\n    1\n    2\n    3\n]\n");
+        assert_eq!(result, "[\n  1\n  2\n  3\n]\n");
     }
 
     #[test]

@@ -1,9 +1,9 @@
 if true {
-    echo hello
+  echo hello
 }
 
 if true {
-    if false {
-        echo nested
-    }
+  if false {
+    echo nested
+  }
 }

@@ -157,8 +157,8 @@ const DEFAULT_CONFIG: &str = r#"# nufmt Configuration
 
 # Number of spaces per indentation level.
 # Valid range: 1-16
-# Default: 4
-indent_width = 4
+# Default: 2
+indent_width = 2
 
 # Maximum line width before breaking pipelines.
 # Valid range: 20-500
@@ -472,7 +472,7 @@ mod tests {
 
         // When no config file exists, should use defaults
         let config = load_config(&args).unwrap();
-        assert_eq!(config.indent_width, 4);
+        assert_eq!(config.indent_width, 2);
         assert_eq!(config.max_width, 100);
     }
 
