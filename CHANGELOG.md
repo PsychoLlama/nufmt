@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Nix overlay for easier integration into NixOS/home-manager configurations
+
 ## [0.3.0] - 2025-12-07
 
 ### Added

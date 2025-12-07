@@ -18,37 +18,50 @@
     let
       inherit (nixpkgs) lib;
 
-      overlays = [ (import rust-overlay) ];
+      cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
+      version = cargoToml.workspace.package.version;
+
+      rustOverlays = [ (import rust-overlay) ];
 
       eachSystem = lib.flip lib.mapAttrs (
         lib.genAttrs (import systems) (
           system:
           import nixpkgs {
-            inherit system overlays;
+            inherit system;
+            overlays = rustOverlays;
           }
         )
       );
+
+      # Package builder that can be used with any pkgs
+      mkNufmt =
+        pkgs:
+        pkgs.rustPlatform.buildRustPackage {
+          pname = "nufmt";
+          inherit version;
+          src = ./.;
+          cargoLock.lockFile = ./Cargo.lock;
+          meta = {
+            description = "A code formatter for Nushell";
+            homepage = "https://github.com/psychollama/nufmt";
+            license = lib.licenses.mit;
+            mainProgram = "nufmt";
+          };
+        };
     in
 
     {
+      overlays.default = final: prev: {
+        nufmt = mkNufmt final;
+      };
+
       packages = eachSystem (
         system: pkgs: {
-          nufmt = pkgs.rustPlatform.buildRustPackage {
-            pname = "nufmt";
-            version = "0.1.0";
-            src = ./.;
-            cargoLock.lockFile = ./Cargo.lock;
-            meta = {
-              description = "A code formatter for Nushell";
-              homepage = "https://github.com/psychollama/nufmt";
-              license = lib.licenses.mit;
-              mainProgram = "nufmt";
-            };
-          };
+          nufmt = mkNufmt pkgs;
 
           docs = pkgs.rustPlatform.buildRustPackage {
             pname = "nufmt-docs";
-            version = "0.1.0";
+            inherit version;
             src = ./.;
             cargoLock.lockFile = ./Cargo.lock;
 
