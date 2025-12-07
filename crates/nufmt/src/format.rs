@@ -365,20 +365,31 @@ impl<'a> Formatter<'a> {
         // Normalize spacing in record/list delimiters
         // e.g., ",  " -> ", " and ":   " -> ": "
         let trimmed = token.trim();
+        let has_newline = token.contains('\n');
 
         if self.line_start {
             self.write_indent();
         }
 
-        // Handle opening brackets
+        // Handle opening brackets - may have trailing newline
         if trimmed == "{" || trimmed == "[" {
             self.push_str(trimmed);
-            self.line_start = false;
+            if has_newline {
+                self.indent_level += 1;
+                self.push_newline();
+            } else {
+                self.line_start = false;
+            }
             return;
         }
 
-        // Handle closing brackets
+        // Handle closing brackets - may have leading newline
         if trimmed == "}" || trimmed == "]" {
+            if has_newline && !self.output.ends_with('\n') {
+                self.indent_level = self.indent_level.saturating_sub(1);
+                self.push_newline();
+                self.write_indent();
+            }
             self.push_str(trimmed);
             self.line_start = false;
             return;
@@ -391,27 +402,20 @@ impl<'a> Formatter<'a> {
             return;
         }
 
-        // Handle comma - normalize to ", "
+        // Handle comma - normalize to ", " or newline for multiline
         if trimmed == "," {
-            self.push_str(", ");
-            self.line_start = false;
+            if has_newline {
+                self.push_newline();
+            } else {
+                self.push_str(", ");
+                self.line_start = false;
+            }
             return;
         }
 
-        // For multiline records, handle newlines
-        if token.contains('\n') {
-            for line in token.lines() {
-                let line_trimmed = line.trim();
-                if !line_trimmed.is_empty() {
-                    self.push_str(line_trimmed);
-                    if line_trimmed == ":" {
-                        self.push_char(' ');
-                    }
-                }
-            }
-            if token.ends_with('\n') {
-                self.push_newline();
-            }
+        // Handle standalone newline (row separator in multiline records)
+        if trimmed.is_empty() && has_newline {
+            self.push_newline();
             return;
         }
 
@@ -585,5 +589,32 @@ mod tests {
         let config = Config::default();
         let result = format_source(source, &config).unwrap();
         assert_eq!(result, "[1, 2, 3]\n");
+    }
+
+    #[test]
+    fn test_multiline_record() {
+        let source = "{\na: 1\nb: 2\n}";
+        let config = Config::default();
+        let result = format_source(source, &config).unwrap();
+        assert_eq!(result, "{\n    a: 1\n    b: 2\n}\n");
+    }
+
+    #[test]
+    fn test_multiline_list() {
+        let source = "[\n1\n2\n3\n]";
+        let config = Config::default();
+        let result = format_source(source, &config).unwrap();
+        assert_eq!(result, "[\n    1\n    2\n    3\n]\n");
+    }
+
+    #[test]
+    fn test_closure_params() {
+        let source = "{|x, y| $x + $y}";
+        let config = Config::default();
+        let result = format_source(source, &config).unwrap();
+        assert!(
+            result.contains("|x, y|"),
+            "Should preserve closure params: {result}"
+        );
     }
 }
