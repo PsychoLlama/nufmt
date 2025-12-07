@@ -6,7 +6,7 @@ use std::{
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use nufmt::{Config, FormatError, debug_tokens, format_source};
 use rayon::prelude::*;
 
@@ -14,6 +14,9 @@ use rayon::prelude::*;
 #[derive(Parser, Debug)]
 #[command(name = "nufmt", version, about)]
 struct Args {
+    #[command(subcommand)]
+    command: Option<Command>,
+
     /// Files or glob patterns to format (reads from stdin if none provided)
     #[arg()]
     patterns: Vec<String>,
@@ -35,8 +38,25 @@ struct Args {
     debug_tokens: bool,
 }
 
+#[derive(Subcommand, Debug)]
+enum Command {
+    /// Initialize a .nufmt.toml config file in the current directory
+    Init {
+        /// Overwrite existing config file
+        #[arg(long)]
+        force: bool,
+    },
+}
+
 fn main() -> ExitCode {
     let args = Args::parse();
+
+    // Handle subcommands
+    if let Some(command) = args.command {
+        return match command {
+            Command::Init { force } => run_init(force),
+        };
+    }
 
     // Handle debug tokens mode
     if args.debug_tokens {
@@ -127,6 +147,49 @@ fn main() -> ExitCode {
         }
     }
 
+    ExitCode::SUCCESS
+}
+
+/// Default config file content with documentation.
+const DEFAULT_CONFIG: &str = r#"# nufmt Configuration
+#
+# nufmt searches for .nufmt.toml in the current directory and ancestors.
+
+# Number of spaces per indentation level.
+# Valid range: 1-16
+# Default: 4
+indent_width = 4
+
+# Maximum line width before breaking pipelines.
+# Valid range: 20-500
+# Default: 100
+max_width = 100
+
+# Preferred quote style for strings.
+# Options: "preserve", "double", "single"
+# - preserve: Keep existing quote style
+# - double: Prefer double quotes when possible (default)
+# - single: Prefer single quotes when possible
+# Note: Quotes are only converted when safe (no escaping needed).
+# Default: "double"
+quote_style = "double"
+"#;
+
+/// Initialize a .nufmt.toml config file in the current directory.
+fn run_init(force: bool) -> ExitCode {
+    let config_path = PathBuf::from(".nufmt.toml");
+
+    if config_path.exists() && !force {
+        eprintln!("error: .nufmt.toml already exists (use --force to overwrite)");
+        return ExitCode::from(1);
+    }
+
+    if let Err(e) = fs::write(&config_path, DEFAULT_CONFIG) {
+        eprintln!("error: failed to write .nufmt.toml: {e}");
+        return ExitCode::from(2);
+    }
+
+    eprintln!("Created .nufmt.toml");
     ExitCode::SUCCESS
 }
 
@@ -399,6 +462,7 @@ mod tests {
     #[test]
     fn test_load_config_defaults() {
         let args = Args {
+            command: None,
             patterns: vec![],
             check: false,
             stdin: false,
@@ -435,6 +499,7 @@ mod tests {
         fs::write(&file_path, "ls|sort-by name").unwrap();
 
         let args = Args {
+            command: None,
             patterns: vec![file_path.display().to_string()],
             check: false,
             stdin: false,
@@ -460,6 +525,7 @@ mod tests {
         fs::write(&file_path, "ls|sort-by name").unwrap();
 
         let args = Args {
+            command: None,
             patterns: vec![file_path.display().to_string()],
             check: true, // Check mode - don't modify
             stdin: false,
@@ -485,6 +551,7 @@ mod tests {
         fs::write(&file_path, "ls | sort-by name\n").unwrap();
 
         let args = Args {
+            command: None,
             patterns: vec![file_path.display().to_string()],
             check: false,
             stdin: false,
