@@ -152,7 +152,6 @@ struct Formatter<'a> {
     indent_level: usize,
     line_start: bool,
     last_end: usize,
-    last_token: Option<&'a str>,
     current_line_len: usize,
 }
 
@@ -165,7 +164,6 @@ impl<'a> Formatter<'a> {
             indent_level: 0,
             line_start: true,
             last_end: 0,
-            last_token: None,
             current_line_len: 0,
         }
     }
@@ -212,7 +210,6 @@ impl<'a> Formatter<'a> {
                 self.process_gap(span.start);
                 self.process_delimiter_token(token);
                 self.last_end = span.end;
-                self.last_token = Some(token);
                 return;
             }
             FlatShape::String => {
@@ -268,11 +265,10 @@ impl<'a> Formatter<'a> {
         self.push_char(' ');
         self.line_start = false;
         self.last_end = span.end;
-        self.last_token = Some(token);
     }
 
     /// Process a string token with potential quote style conversion.
-    fn process_string_token(&mut self, token: &'a str, span: Span) {
+    fn process_string_token(&mut self, token: &str, span: Span) {
         if self.line_start {
             self.write_indent();
         }
@@ -280,18 +276,16 @@ impl<'a> Formatter<'a> {
         self.push_str(&converted);
         self.line_start = false;
         self.last_end = span.end;
-        self.last_token = Some(token);
     }
 
     /// Write a token with standard formatting.
-    fn write_token(&mut self, token: &'a str, span: Span) {
+    fn write_token(&mut self, token: &str, span: Span) {
         if self.line_start {
             self.write_indent();
         }
         self.push_str(token);
         self.line_start = false;
         self.last_end = span.end;
-        self.last_token = Some(token);
     }
 
     /// Process the gap between the last token and the next token.
