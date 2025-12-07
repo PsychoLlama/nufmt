@@ -188,84 +188,106 @@ impl<'a> Formatter<'a> {
         self.output
     }
 
+    /// Process a single token from the flattened AST.
     fn process_token(&mut self, span: Span, shape: &FlatShape) {
-        // Skip tokens with overlapping or invalid spans (can happen with some command parsers)
-        let is_overlapping = span.start < self.last_end;
-        let is_invalid = span.start > span.end;
-        if is_overlapping || is_invalid {
+        if !self.is_valid_span(span) {
             return;
         }
 
         let token = &self.source[span.start..span.end];
 
-        // Handle block/closure shapes specially - they include braces with whitespace
-        // But Block is also used for ( ) in string interpolation - only process as block if it has braces
-        if matches!(shape, FlatShape::Block | FlatShape::Closure) {
-            let trimmed = token.trim();
-            if trimmed.starts_with('{') || trimmed.ends_with('}') {
-                self.process_gap(span.start);
-                self.process_block_token(token);
-                self.last_end = span.end;
+        // Dispatch to specialized handlers based on token shape
+        match shape {
+            FlatShape::Block | FlatShape::Closure => {
+                if self.try_process_block(token, span) {
+                    return;
+                }
+                // Fall through to default handling for ( ) in interpolation
+            }
+            FlatShape::Pipe => {
+                self.process_pipe_token(token, span);
                 return;
             }
-            // Fall through to normal token handling for ( ) in interpolation
-        }
-
-        // Handle pipe specially - add spaces around it and possibly break line
-        if matches!(shape, FlatShape::Pipe) {
-            // Don't process gap normally - we handle spacing ourselves
-            let gap = &self.source[self.last_end..span.start];
-            let has_newline = gap.contains('\n');
-
-            // Check if we should break before the pipe
-            // " | " adds 3 characters
-            let would_exceed = self.current_line_len + 3 > self.config.max_width;
-
-            if (would_exceed || has_newline) && !self.line_start {
-                self.push_newline();
+            FlatShape::Record | FlatShape::List => {
+                self.process_gap(span.start);
+                self.process_delimiter_token(token);
+                self.last_end = span.end;
+                self.last_token = Some(token);
+                return;
             }
-
-            if self.line_start {
-                self.write_indent();
-            } else if !self.output.ends_with(' ') {
-                self.push_char(' ');
+            FlatShape::String => {
+                self.process_gap(span.start);
+                self.process_string_token(token, span);
+                return;
             }
-            self.push_str(token);
-            self.push_char(' ');
-            self.line_start = false;
-            self.last_end = span.end;
-            self.last_token = Some(token);
-            return;
+            _ => {}
         }
 
-        // Handle record/list delimiter tokens - normalize spacing
-        if matches!(shape, FlatShape::Record | FlatShape::List) {
-            self.process_gap(span.start);
-            self.process_delimiter_token(token);
-            self.last_end = span.end;
-            self.last_token = Some(token);
-            return;
-        }
-
-        // Process gap between last token and this one
+        // Default token handling
         self.process_gap(span.start);
+        self.write_token(token, span);
+    }
 
-        // Write indentation if at line start
+    /// Check if a span is valid and non-overlapping with previously processed content.
+    const fn is_valid_span(&self, span: Span) -> bool {
+        let is_overlapping = span.start < self.last_end;
+        let is_invalid = span.start > span.end;
+        !is_overlapping && !is_invalid
+    }
+
+    /// Try to process a block/closure token. Returns true if handled.
+    fn try_process_block(&mut self, token: &'a str, span: Span) -> bool {
+        let trimmed = token.trim();
+        if trimmed.starts_with('{') || trimmed.ends_with('}') {
+            self.process_gap(span.start);
+            self.process_block_token(token);
+            self.last_end = span.end;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Process a pipe token with proper spacing and line breaking.
+    fn process_pipe_token(&mut self, token: &'a str, span: Span) {
+        let gap = &self.source[self.last_end..span.start];
+        let has_newline = gap.contains('\n');
+
+        // " | " adds 3 characters - break line if needed
+        let would_exceed = self.current_line_len + 3 > self.config.max_width;
+        if (would_exceed || has_newline) && !self.line_start {
+            self.push_newline();
+        }
+
+        if self.line_start {
+            self.write_indent();
+        } else if !self.output.ends_with(' ') {
+            self.push_char(' ');
+        }
+        self.push_str(token);
+        self.push_char(' ');
+        self.line_start = false;
+        self.last_end = span.end;
+        self.last_token = Some(token);
+    }
+
+    /// Process a string token with potential quote style conversion.
+    fn process_string_token(&mut self, token: &'a str, span: Span) {
         if self.line_start {
             self.write_indent();
         }
+        let converted = self.convert_string_quotes(token);
+        self.push_str(&converted);
+        self.line_start = false;
+        self.last_end = span.end;
+        self.last_token = Some(token);
+    }
 
-        // Handle string tokens - potentially convert quote style
-        if matches!(shape, FlatShape::String) {
-            let converted = self.convert_string_quotes(token);
-            self.push_str(&converted);
-            self.line_start = false;
-            self.last_end = span.end;
-            self.last_token = Some(token);
-            return;
+    /// Write a token with standard formatting.
+    fn write_token(&mut self, token: &'a str, span: Span) {
+        if self.line_start {
+            self.write_indent();
         }
-
-        // Write the token
         self.push_str(token);
         self.line_start = false;
         self.last_end = span.end;
