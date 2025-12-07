@@ -45,6 +45,29 @@
               mainProgram = "nufmt";
             };
           };
+
+          docs = pkgs.rustPlatform.buildRustPackage {
+            pname = "nufmt-docs";
+            version = "0.1.0";
+            src = ./.;
+            cargoLock.lockFile = ./Cargo.lock;
+
+            buildPhase = ''
+              cargo doc --no-deps --package nufmt
+            '';
+
+            installPhase = ''
+              mkdir -p $out
+              cp -r target/doc/* $out/
+            '';
+
+            meta = {
+              description = "Documentation for nufmt";
+              homepage = "https://github.com/psychollama/nufmt";
+              license = lib.licenses.mit;
+            };
+          };
+
           default = self.packages.${system}.nufmt;
         }
       );
