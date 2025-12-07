@@ -243,8 +243,13 @@ impl<'a> Formatter<'a> {
                     self.push_newline();
                 }
             } else if !trimmed.is_empty() {
-                // Non-comment, non-whitespace content (like = in let)
-                if !self.output.is_empty() && !self.line_start && !self.output.ends_with(' ') {
+                // Non-comment, non-whitespace content (like = in let, or ; separator)
+                let no_space_before = trimmed.starts_with(';') || trimmed.starts_with(',');
+                if !no_space_before
+                    && !self.output.is_empty()
+                    && !self.line_start
+                    && !self.output.ends_with(' ')
+                {
                     self.push_char(' ');
                 }
                 if self.line_start {
@@ -252,7 +257,8 @@ impl<'a> Formatter<'a> {
                     self.line_start = false;
                 }
                 self.push_str(trimmed);
-                if line.ends_with(' ') || line.ends_with('\t') || has_more_lines {
+                // Add space after certain punctuation
+                if line.ends_with(' ') || line.ends_with('\t') || has_more_lines || trimmed == ";" {
                     self.push_char(' ');
                 }
             } else if has_more_lines {
