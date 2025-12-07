@@ -3,10 +3,12 @@ use std::{
     io::{self, Read, Write},
     path::{Path, PathBuf},
     process::ExitCode,
+    sync::atomic::{AtomicBool, Ordering},
 };
 
 use clap::Parser;
 use nufmt::{Config, FormatError, debug_tokens, format_source};
+use rayon::prelude::*;
 
 /// A code formatter for Nushell
 #[derive(Parser, Debug)]
@@ -69,27 +71,27 @@ fn main() -> ExitCode {
             }
         }
     } else {
-        let mut any_would_change = false;
-        let mut any_error = false;
+        let any_would_change = AtomicBool::new(false);
+        let any_error = AtomicBool::new(false);
 
-        for path in &args.files {
-            match format_file(path, &args, &config) {
+        args.files
+            .par_iter()
+            .for_each(|path| match format_file(path, &args, &config) {
                 Ok(would_change) => {
                     if would_change {
-                        any_would_change = true;
+                        any_would_change.store(true, Ordering::Relaxed);
                     }
                 }
                 Err(e) => {
                     eprintln!("{}: {e}", path.display());
-                    any_error = true;
+                    any_error.store(true, Ordering::Relaxed);
                 }
-            }
-        }
+            });
 
-        if any_error {
+        if any_error.load(Ordering::Relaxed) {
             return ExitCode::from(2);
         }
-        if args.check && any_would_change {
+        if args.check && any_would_change.load(Ordering::Relaxed) {
             return ExitCode::from(1);
         }
     }
