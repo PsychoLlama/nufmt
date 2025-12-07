@@ -1,0 +1,21 @@
+# nufmt Configuration
+#
+# Copy this file to .nufmt.toml in your project root.
+# nufmt searches for .nufmt.toml in the current directory and ancestors.
+
+# Number of spaces per indentation level.
+# Default: 4
+indent_width = 4
+
+# Maximum line width before breaking pipelines.
+# Default: 100
+max_width = 100
+
+# Preferred quote style for strings.
+# Options: "preserve", "double", "single"
+# - preserve: Keep existing quote style
+# - double: Prefer double quotes when possible (default)
+# - single: Prefer single quotes when possible
+# Note: Quotes are only converted when safe (no escaping needed).
+# Default: "double"
+quote_style = "double"
