@@ -54,16 +54,14 @@ nufmt-cli (binary)
 
 ### Phase 4: Polish
 
-1. Error messages with file/line context - future
+1. ✓ Error messages with file/line context
 2. ✓ Diff output in check mode
-3. Config file support (`.nufmt.toml`) - future
+3. ✓ Config file support (`.nufmt.toml`)
 4. ✓ Integration tests with fixture files
 
 ## Future Work
 
 - Glob pattern support for file discovery
-- Config file (`.nufmt.toml`) for per-project settings
-- Better error messages with source location
 
 ## Completed Beyond Original Plan
 
