@@ -2136,8 +2136,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "nufmt"
-version = "0.3.0"
+name = "nufmt-cli"
+version = "0.4.0"
+dependencies = [
+ "clap",
+ "glob",
+ "nufmt-core",
+ "rayon",
+ "serde",
+ "tempfile",
+ "toml",
+]
+
+[[package]]
+name = "nufmt-core"
+version = "0.4.0"
 dependencies = [
  "miette",
  "nu-cmd-lang",
@@ -2145,19 +2158,6 @@ dependencies = [
  "nu-parser",
  "nu-protocol",
  "serde",
-]
-
-[[package]]
-name = "nufmt-cli"
-version = "0.3.0"
-dependencies = [
- "clap",
- "glob",
- "nufmt",
- "rayon",
- "serde",
- "tempfile",
- "toml",
 ]
 
 [[package]]

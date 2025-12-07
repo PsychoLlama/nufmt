@@ -1,4 +1,4 @@
-use nufmt::{Config, format_source};
+use nufmt_core::{Config, format_source};
 use std::fs;
 use std::path::Path;
 

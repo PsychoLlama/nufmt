@@ -16,7 +16,7 @@ path = "src/main.rs"
 [dependencies]
 clap.workspace = true
 glob.workspace = true
-nufmt.workspace = true
+nufmt-core.workspace = true
 rayon.workspace = true
 serde.workspace = true
 toml.workspace = true

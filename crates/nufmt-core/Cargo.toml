@@ -1,5 +1,5 @@
 [package]
-name = "nufmt"
+name = "nufmt-core"
 description = "Nushell code formatting library"
 version.workspace = true
 edition.workspace = true

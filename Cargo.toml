@@ -19,7 +19,7 @@ nu-cmd-lang = "0.105"
 nu-command = "0.105"
 nu-parser = "0.105"
 nu-protocol = "0.105"
-nufmt = { path = "crates/nufmt" }
+nufmt-core = { path = "crates/nufmt-core" }
 rayon = "1.10"
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"

@@ -7,7 +7,7 @@ use std::{
 };
 
 use clap::{Parser, Subcommand, ValueEnum};
-use nufmt::{Config, FormatError, debug_tokens, format_source};
+use nufmt_core::{Config, FormatError, debug_tokens, format_source};
 use rayon::prelude::*;
 
 /// When to use colored output.
@@ -44,7 +44,7 @@ enum QuoteStyleArg {
     Single,
 }
 
-impl From<QuoteStyleArg> for nufmt::QuoteStyle {
+impl From<QuoteStyleArg> for nufmt_core::QuoteStyle {
     fn from(arg: QuoteStyleArg) -> Self {
         match arg {
             QuoteStyleArg::Preserve => Self::Preserve,
@@ -681,7 +681,7 @@ mod tests {
         let config = load_config_file(&config_path).unwrap();
         assert_eq!(config.indent_width, 2);
         assert_eq!(config.max_width, 80);
-        assert_eq!(config.quote_style, nufmt::QuoteStyle::Single);
+        assert_eq!(config.quote_style, nufmt_core::QuoteStyle::Single);
     }
 
     #[test]

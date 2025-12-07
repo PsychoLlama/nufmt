@@ -66,7 +66,7 @@
             cargoLock.lockFile = ./Cargo.lock;
 
             buildPhase = ''
-              cargo doc --no-deps --package nufmt
+              cargo doc --no-deps --package nufmt-core
             '';
 
             installPhase = ''
