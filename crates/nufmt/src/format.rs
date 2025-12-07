@@ -145,17 +145,29 @@ pub fn format_source(source: &str, config: &Config) -> Result<String, FormatErro
     Ok(formatted)
 }
 
+/// Stateful formatter that processes tokens and builds formatted output.
+///
+/// The formatter tracks indentation, line position, and processes tokens
+/// sequentially to produce properly formatted Nushell source code.
 struct Formatter<'a> {
+    /// Original source code being formatted.
     source: &'a str,
+    /// Formatting configuration.
     config: &'a Config,
+    /// Accumulated output string.
     output: String,
+    /// Current indentation level (number of indent units).
     indent_level: usize,
+    /// Whether we're at the start of a line (need indentation).
     line_start: bool,
+    /// Byte offset of the end of the last processed token.
     last_end: usize,
+    /// Current line length in characters (for line breaking).
     current_line_len: usize,
 }
 
 impl<'a> Formatter<'a> {
+    /// Create a new formatter for the given source code and configuration.
     const fn new(source: &'a str, config: &'a Config) -> Self {
         Self {
             source,
@@ -168,6 +180,9 @@ impl<'a> Formatter<'a> {
         }
     }
 
+    /// Format the source code using the provided flattened token list.
+    ///
+    /// Consumes the formatter and returns the formatted output string.
     fn format(mut self, flattened: &[(Span, FlatShape)], source_len: usize) -> String {
         for (span, shape) in flattened {
             self.process_token(*span, shape);
@@ -469,9 +484,11 @@ impl<'a> Formatter<'a> {
         self.line_start = false;
     }
 
+    /// Process a record/list delimiter token and normalize its spacing.
+    ///
+    /// Handles brackets `{}[]`, colons `:`, and commas `,` with proper
+    /// spacing normalization (e.g., `,  ` becomes `, `).
     fn process_delimiter_token(&mut self, token: &str) {
-        // Normalize spacing in record/list delimiters
-        // e.g., ",  " -> ", " and ":   " -> ": "
         let trimmed = token.trim();
         let has_newline = token.contains('\n');
 
@@ -535,6 +552,7 @@ impl<'a> Formatter<'a> {
         self.line_start = false;
     }
 
+    /// Write indentation spaces for the current indent level.
     fn write_indent(&mut self) {
         let indent_size = self.indent_level * self.config.indent_width;
         for _ in 0..indent_size {
@@ -543,6 +561,7 @@ impl<'a> Formatter<'a> {
         self.current_line_len = indent_size;
     }
 
+    /// Push a single character to the output, tracking line length.
     fn push_char(&mut self, c: char) {
         self.output.push(c);
         if c == '\n' {
@@ -552,6 +571,7 @@ impl<'a> Formatter<'a> {
         }
     }
 
+    /// Push a string to the output, tracking line length.
     fn push_str(&mut self, s: &str) {
         self.output.push_str(s);
         if let Some(last_newline) = s.rfind('\n') {
@@ -561,6 +581,7 @@ impl<'a> Formatter<'a> {
         }
     }
 
+    /// Push a newline and reset line tracking state.
     fn push_newline(&mut self) {
         self.output.push('\n');
         self.current_line_len = 0;
@@ -696,6 +717,7 @@ fn parse_closure_params(token: &str) -> (Option<&str>, &str) {
     (Some(params.trim()), inner)
 }
 
+/// Format a parsed block by flattening it to tokens and processing each one.
 fn format_block(
     working_set: &StateWorkingSet,
     block: &Arc<nu_protocol::ast::Block>,
