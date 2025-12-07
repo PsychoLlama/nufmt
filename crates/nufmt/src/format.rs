@@ -91,28 +91,31 @@ impl<'a> Formatter<'a> {
 
         // Handle block/closure shapes specially - they include braces with whitespace
         if matches!(shape, FlatShape::Block | FlatShape::Closure) {
+            self.process_gap(span.start);
             self.process_block_token(token);
             self.last_end = span.end;
             return;
         }
 
-        // Check for newlines in the gap between tokens
-        let gap = &self.source[self.last_end..span.start];
-        let newline_count = gap.chars().filter(|&c| c == '\n').count();
-
-        if newline_count > 0 {
-            // Preserve at most one blank line
-            let lines_to_add = newline_count.min(2);
-            for _ in 0..lines_to_add {
-                self.output.push('\n');
-            }
-            self.line_start = true;
-        } else if !self.output.is_empty() && !self.line_start {
-            // Add space between tokens on same line
-            if self.needs_space_before(token) {
+        // Handle pipe specially - always add spaces around it
+        if matches!(shape, FlatShape::Pipe) {
+            self.process_gap(span.start);
+            if !self.output.is_empty() && !self.line_start && !self.output.ends_with(' ') {
                 self.output.push(' ');
             }
+            if self.line_start {
+                self.write_indent();
+            }
+            self.output.push_str(token);
+            self.output.push(' ');
+            self.line_start = false;
+            self.last_end = span.end;
+            self.last_token = Some(token);
+            return;
         }
+
+        // Process gap between last token and this one
+        self.process_gap(span.start);
 
         // Write indentation if at line start
         if self.line_start {
@@ -124,6 +127,47 @@ impl<'a> Formatter<'a> {
         self.line_start = false;
         self.last_end = span.end;
         self.last_token = Some(token);
+    }
+
+    fn process_gap(&mut self, next_start: usize) {
+        let gap = &self.source[self.last_end..next_start];
+
+        // Check for newlines first
+        let newline_count = gap.chars().filter(|&c| c == '\n').count();
+
+        if newline_count > 0 {
+            // Preserve at most one blank line
+            let lines_to_add = newline_count.min(2);
+            for _ in 0..lines_to_add {
+                self.output.push('\n');
+            }
+            self.line_start = true;
+            return;
+        }
+
+        // Check for non-whitespace content in gap (e.g., = in let statements)
+        let gap_content = gap.trim();
+        if !gap_content.is_empty() {
+            // There's meaningful content in the gap - preserve it with spacing
+            if !self.output.is_empty() && !self.line_start && !self.output.ends_with(' ') {
+                self.output.push(' ');
+            }
+            if self.line_start {
+                self.write_indent();
+                self.line_start = false;
+            }
+            self.output.push_str(gap_content);
+            // Add space after gap content if there was whitespace after it originally
+            if gap.ends_with(' ') || gap.ends_with('\t') {
+                self.output.push(' ');
+            }
+            return;
+        }
+
+        // Just whitespace - add single space if not at line start
+        if !self.output.is_empty() && !self.line_start && !gap.is_empty() {
+            self.output.push(' ');
+        }
     }
 
     fn process_block_token(&mut self, token: &str) {
@@ -177,36 +221,6 @@ impl<'a> Formatter<'a> {
         for _ in 0..(self.indent_level * self.config.indent_width) {
             self.output.push(' ');
         }
-    }
-
-    fn needs_space_before(&self, token: &str) -> bool {
-        if token.is_empty() {
-            return false;
-        }
-
-        let Some(last_char) = self.output.chars().last() else {
-            return false;
-        };
-
-        // No space after opening brackets
-        if matches!(last_char, '(' | '[' | '{') {
-            return false;
-        }
-
-        // No space before closing brackets, comma, semicolon, or colon
-        if matches!(
-            token.chars().next(),
-            Some(')' | ']' | '}' | ',' | ';' | ':')
-        ) {
-            return false;
-        }
-
-        // No space after colon in records (e.g., {a: 1})
-        if last_char == ':' {
-            return true;
-        }
-
-        true
     }
 }
 
@@ -266,5 +280,23 @@ mod tests {
             result,
             "if true {\n    if false {\n        echo nested\n    }\n}\n"
         );
+    }
+
+    #[test]
+    fn test_let_statement() {
+        let source = "let x = 1 + 2";
+        let config = Config::default();
+        let result = format_source(source, &config).unwrap();
+        assert_eq!(result, "let x = 1 + 2\n");
+    }
+
+    #[test]
+    fn test_operator_spacing() {
+        // In Nushell, math expressions need spaces to be properly parsed
+        // `1+2` is an external command, `1 + 2` is math
+        let source = "let x = 1 + 2";
+        let config = Config::default();
+        let result = format_source(source, &config).unwrap();
+        assert_eq!(result, "let x = 1 + 2\n");
     }
 }
