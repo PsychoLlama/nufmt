@@ -36,7 +36,7 @@ jobs:
         run: nix develop --command just build
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v4
         with:
           name: nufmt-x86_64-linux
           path: target/release/nufmt
@@ -52,12 +52,14 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Download artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v4
         with:
           path: artifacts
 
       - name: Prepare release assets
         run: |
+          echo "Artifact structure:"
+          find artifacts -type f
           mkdir -p release
           cp artifacts/nufmt-x86_64-linux/nufmt release/nufmt-x86_64-linux
           chmod +x release/nufmt-x86_64-linux
