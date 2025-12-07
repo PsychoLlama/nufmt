@@ -10,9 +10,7 @@ let list = [
   3
 ]
 
-let closure = {|x,y|
-  $x + $y
-}
+let closure = {|x,y| $x + $y }
 
 $data | get name | str upcase
 

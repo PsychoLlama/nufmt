@@ -167,6 +167,8 @@ struct Formatter<'a> {
     /// Stack tracking whether each nested collection should be multiline.
     /// Each entry corresponds to a `{` or `[` we've opened.
     collection_multiline_stack: Vec<bool>,
+    /// Stack tracking whether each nested block/closure should be multiline.
+    block_multiline_stack: Vec<bool>,
     /// The flattened token list for lookahead.
     tokens: &'a [(Span, FlatShape)],
     /// Current token index.
@@ -189,6 +191,7 @@ impl<'a> Formatter<'a> {
             last_end: 0,
             current_line_len: 0,
             collection_multiline_stack: Vec::new(),
+            block_multiline_stack: Vec::new(),
             tokens,
             token_index: 0,
         }
@@ -429,10 +432,13 @@ impl<'a> Formatter<'a> {
         let has_open = trimmed.starts_with('{');
         let has_close = trimmed.ends_with('}');
 
+        // Check if the raw token contains a newline (indicates multiline intent)
+        let token_has_newline = token.contains('\n');
+
         let (params, inner) = parse_block_content(token, trimmed, has_open, has_close);
 
         if has_open {
-            self.write_block_open(params, inner);
+            self.write_block_open(params, inner, has_close, token_has_newline);
         }
 
         self.write_block_inner(inner);
@@ -442,8 +448,81 @@ impl<'a> Formatter<'a> {
         }
     }
 
+    /// Calculate the single-line length of a block/closure.
+    fn calculate_block_length(params: Option<&str>, inner: &str) -> usize {
+        let mut length = 2; // "{ " and " }"
+
+        // Add params length if present
+        if let Some(p) = params {
+            length += p.len();
+        }
+
+        // Calculate inner content on single line (spaces between elements)
+        let inner_content: String = inner
+            .lines()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+        length += inner_content.len();
+
+        length
+    }
+
+    /// Calculate the single-line length of a block/closure by looking ahead in tokens.
+    ///
+    /// This is needed because Nushell's parser splits closures into multiple tokens:
+    /// `{|x| $x + 1}` becomes: `{|x| `, `$x`, `+`, `1`, `}`
+    fn calculate_block_length_from_tokens(&self) -> usize {
+        let mut length = 0;
+        let mut depth = 1;
+        let mut idx = self.token_index;
+        let mut prev_end = self.last_end;
+
+        while idx < self.tokens.len() && depth > 0 {
+            let (span, ref shape) = self.tokens[idx];
+            if span.start <= span.end && span.end <= self.source.len() {
+                // Add gap length (normalized to single space)
+                if span.start > prev_end {
+                    let gap = self.source[prev_end..span.start].trim();
+                    if gap.is_empty() {
+                        length += 1; // just a space
+                    } else {
+                        length += gap.len() + 1; // content + space
+                    }
+                }
+
+                let token = self.source[span.start..span.end].trim();
+
+                match shape {
+                    FlatShape::Block | FlatShape::Closure => {
+                        if token.starts_with('{') {
+                            depth += 1;
+                        }
+                        if token.ends_with('}') {
+                            depth -= 1;
+                        }
+                    }
+                    _ => {}
+                }
+
+                length += token.len();
+                prev_end = span.end;
+            }
+            idx += 1;
+        }
+
+        length + 1 // Add space before closing brace
+    }
+
     /// Write the opening brace of a block with optional closure parameters.
-    fn write_block_open(&mut self, params: Option<&str>, inner: &str) {
+    fn write_block_open(
+        &mut self,
+        params: Option<&str>,
+        inner: &str,
+        has_close: bool,
+        token_has_newline: bool,
+    ) {
         if !self.line_start && !self.output.ends_with(' ') {
             self.push_char(' ');
         }
@@ -461,7 +540,41 @@ impl<'a> Formatter<'a> {
         // Check if there's meaningful content after the brace/params
         let first_line = inner.lines().next().unwrap_or("");
         let first_trimmed = first_line.trim();
-        if first_trimmed.is_empty() || first_trimmed.starts_with('#') {
+
+        // Check if content already has newlines (was multiline in source)
+        let source_is_multiline = inner.contains('\n') && inner.lines().count() > 1;
+
+        // Calculate if single-line would exceed max_width
+        // For complete blocks (has_close=true), calculate from inner content
+        // For split blocks (has_close=false), look ahead in token stream
+        let block_length = if has_close {
+            Self::calculate_block_length(params, inner)
+        } else {
+            // Closure split across tokens - look ahead
+            self.calculate_block_length_from_tokens()
+        };
+        let would_exceed = self.current_line_len + block_length > self.config.max_width;
+
+        // For split blocks, empty inner is expected (content comes later)
+        // So we don't use first_trimmed.is_empty() as a signal for multiline
+        // But we DO check if the token itself contains a newline (like "{\n")
+        let force_multiline = if has_close {
+            first_trimmed.is_empty()
+                || first_trimmed.starts_with('#')
+                || source_is_multiline
+                || would_exceed
+        } else {
+            // Split block - check token newline, comments, or would exceed
+            token_has_newline
+                || first_trimmed.starts_with('#')
+                || source_is_multiline
+                || would_exceed
+        };
+
+        // Push to stack for tracking
+        self.block_multiline_stack.push(force_multiline);
+
+        if force_multiline {
             self.push_newline();
         } else {
             self.push_char(' ');
@@ -489,12 +602,22 @@ impl<'a> Formatter<'a> {
     fn write_block_close(&mut self) {
         self.indent_level = self.indent_level.saturating_sub(1);
 
-        if !self.output.ends_with('\n') {
-            self.push_newline();
-        }
+        // Check if this block was marked as multiline from split block tracking
+        let was_multiline = self.block_multiline_stack.pop().unwrap_or(true);
 
-        if self.line_start {
-            self.write_indent();
+        if was_multiline {
+            if !self.output.ends_with('\n') {
+                self.push_newline();
+            }
+
+            if self.line_start {
+                self.write_indent();
+            }
+        } else {
+            // Single-line block - just add space before closing brace
+            if !self.output.ends_with(' ') {
+                self.push_char(' ');
+            }
         }
         self.push_char('}');
         self.line_start = false;
@@ -1144,5 +1267,47 @@ mod tests {
             newline_count > 1,
             "Expected multiline record in: {result:?}"
         );
+    }
+
+    #[test]
+    fn test_long_closure_auto_break() {
+        // Long closure should break to multiline when exceeding max_width
+        let source = "{|x, y| $x + $y + $x * $y + $x - $y}";
+        let mut config = Config::default();
+        config.max_width = 25;
+        let result = format_source(source, &config).unwrap();
+        // Should break into multiple lines
+        let newline_count = result.chars().filter(|&c| c == '\n').count();
+        assert!(
+            newline_count > 1,
+            "Expected multiline closure in: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_short_closure_stays_single_line() {
+        // Short closure should stay on one line
+        let source = "{|x| $x + 1}";
+        let config = Config::default(); // max_width = 100
+        let result = format_source(source, &config).unwrap();
+        // Should be on one line (only trailing newline)
+        let newline_count = result.chars().filter(|&c| c == '\n').count();
+        assert_eq!(
+            newline_count, 1,
+            "Expected single line closure in: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_long_block_auto_break() {
+        // Long if block should break when exceeding max_width
+        let source =
+            "if true { echo \"this is a really long message that should cause wrapping\" }";
+        let mut config = Config::default();
+        config.max_width = 40;
+        let result = format_source(source, &config).unwrap();
+        // Should break into multiple lines
+        let newline_count = result.chars().filter(|&c| c == '\n').count();
+        assert!(newline_count > 1, "Expected multiline block in: {result:?}");
     }
 }
