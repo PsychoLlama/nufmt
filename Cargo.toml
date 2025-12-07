@@ -13,6 +13,8 @@ categories = ["command-line-utilities", "development-tools"]
 
 [workspace.dependencies]
 clap = { version = "4", features = ["derive"] }
+nu-parser = "0.104"
+nu-protocol = "0.104"
 nufmt = { path = "crates/nufmt" }
 
 [workspace.lints.rust]
@@ -23,3 +25,5 @@ all = { level = "deny", priority = -1 }
 pedantic = { level = "deny", priority = -1 }
 nursery = { level = "deny", priority = -1 }
 cargo = { level = "deny", priority = -1 }
+# nu-parser brings in multiple versions of dependencies
+multiple_crate_versions = "allow"
