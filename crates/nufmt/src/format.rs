@@ -398,71 +398,54 @@ impl<'a> Formatter<'a> {
         // Trailing empty part after last newline: do nothing (newline already emitted)
     }
 
+    /// Process a block or closure token (contains `{` and/or `}`).
     fn process_block_token(&mut self, token: &str) {
         let trimmed = token.trim();
         let has_open = trimmed.starts_with('{');
         let has_close = trimmed.ends_with('}');
 
-        // Check for closure parameters: {|params| or {|params|
-        let (params, inner) = if has_open {
-            let after_brace = token.trim_start().strip_prefix('{').unwrap_or("");
-            if after_brace.trim_start().starts_with('|') {
-                // Find closing pipe for parameters
-                let param_start = after_brace.find('|').unwrap_or(0);
-                let rest = &after_brace[param_start + 1..];
-                rest.find('|').map_or((None, after_brace), |param_end| {
-                    let params = &after_brace[..param_start + param_end + 2];
-                    let inner = &rest[param_end + 1..];
-                    (Some(params.trim()), inner)
-                })
-            } else {
-                (None, after_brace)
-            }
-        } else if has_close {
-            (None, token.trim_end().strip_suffix('}').unwrap_or(""))
-        } else {
-            (None, "")
-        };
+        let (params, inner) = parse_block_content(token, trimmed, has_open, has_close);
 
-        // For closing-only tokens, handle separately
-        let inner = if has_open && has_close {
-            trimmed
-                .strip_prefix('{')
-                .and_then(|s| s.strip_suffix('}'))
-                .unwrap_or("")
-        } else {
-            inner
-        };
-
-        // Opening brace
         if has_open {
-            if !self.line_start && !self.output.ends_with(' ') {
-                self.push_char(' ');
-            }
-            if self.line_start {
-                self.write_indent();
-            }
-            self.push_char('{');
-
-            // Write closure parameters if present
-            if let Some(p) = params {
-                self.push_str(p);
-            }
-
-            self.indent_level += 1;
-
-            // Check if there's meaningful content after the brace/params
-            let first_line = inner.lines().next().unwrap_or("");
-            let first_trimmed = first_line.trim();
-            if first_trimmed.is_empty() || first_trimmed.starts_with('#') {
-                self.push_newline();
-            } else {
-                self.push_char(' ');
-                self.line_start = false;
-            }
+            self.write_block_open(params, inner);
         }
 
-        // Process inner content (may contain comments)
+        self.write_block_inner(inner);
+
+        if has_close {
+            self.write_block_close();
+        }
+    }
+
+    /// Write the opening brace of a block with optional closure parameters.
+    fn write_block_open(&mut self, params: Option<&str>, inner: &str) {
+        if !self.line_start && !self.output.ends_with(' ') {
+            self.push_char(' ');
+        }
+        if self.line_start {
+            self.write_indent();
+        }
+        self.push_char('{');
+
+        if let Some(p) = params {
+            self.push_str(p);
+        }
+
+        self.indent_level += 1;
+
+        // Check if there's meaningful content after the brace/params
+        let first_line = inner.lines().next().unwrap_or("");
+        let first_trimmed = first_line.trim();
+        if first_trimmed.is_empty() || first_trimmed.starts_with('#') {
+            self.push_newline();
+        } else {
+            self.push_char(' ');
+            self.line_start = false;
+        }
+    }
+
+    /// Write the inner content of a block.
+    fn write_block_inner(&mut self, inner: &str) {
         for line in inner.lines() {
             let line_trimmed = line.trim();
             if line_trimmed.is_empty() {
@@ -475,21 +458,21 @@ impl<'a> Formatter<'a> {
             self.push_str(line_trimmed);
             self.push_newline();
         }
+    }
 
-        // Closing brace
-        if has_close {
-            self.indent_level = self.indent_level.saturating_sub(1);
+    /// Write the closing brace of a block.
+    fn write_block_close(&mut self) {
+        self.indent_level = self.indent_level.saturating_sub(1);
 
-            if !self.output.ends_with('\n') {
-                self.push_newline();
-            }
-
-            if self.line_start {
-                self.write_indent();
-            }
-            self.push_char('}');
-            self.line_start = false;
+        if !self.output.ends_with('\n') {
+            self.push_newline();
         }
+
+        if self.line_start {
+            self.write_indent();
+        }
+        self.push_char('}');
+        self.line_start = false;
     }
 
     fn process_delimiter_token(&mut self, token: &str) {
@@ -656,6 +639,67 @@ fn to_single_quotes(token: &str) -> String {
     }
 
     token.to_string()
+}
+
+/// Parse a block token to extract closure parameters and inner content.
+///
+/// For closures like `{|x, y| body}`, returns `(Some("|x, y|"), "body")`.
+/// For regular blocks like `{ body }`, returns `(None, "body")`.
+fn parse_block_content<'a>(
+    token: &'a str,
+    trimmed: &'a str,
+    has_open: bool,
+    has_close: bool,
+) -> (Option<&'a str>, &'a str) {
+    let (params, initial_inner) = if has_open {
+        parse_closure_params(token)
+    } else if has_close {
+        (None, token.trim_end().strip_suffix('}').unwrap_or(""))
+    } else {
+        (None, "")
+    };
+
+    // For tokens with both braces, extract content between them
+    let inner = if has_open && has_close {
+        trimmed
+            .strip_prefix('{')
+            .and_then(|s| s.strip_suffix('}'))
+            .unwrap_or("")
+    } else {
+        initial_inner
+    };
+
+    (params, inner)
+}
+
+/// Parse closure parameters from a block token.
+///
+/// Given `{|x, y| body`, returns `(Some("|x, y|"), " body")`.
+/// Given `{ body`, returns `(None, " body")`.
+fn parse_closure_params(token: &str) -> (Option<&str>, &str) {
+    let after_brace = token.trim_start().strip_prefix('{').unwrap_or("");
+
+    if !after_brace.trim_start().starts_with('|') {
+        return (None, after_brace);
+    }
+
+    // Find the opening pipe
+    let Some(first_pipe) = after_brace.find('|') else {
+        return (None, after_brace);
+    };
+
+    // Find the closing pipe
+    let rest = &after_brace[first_pipe + 1..];
+    let Some(second_pipe) = rest.find('|') else {
+        return (None, after_brace);
+    };
+
+    // Extract params: from first pipe to second pipe (inclusive)
+    let params_end = first_pipe + 1 + second_pipe + 1;
+    let params = &after_brace[..params_end];
+    let inner = &after_brace[params_end..];
+
+    (Some(params.trim()), inner)
 }
 
 fn format_block(
