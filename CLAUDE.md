@@ -14,3 +14,9 @@ Nushell code formatter. See `ref/plan.md` for implementation plan.
 
 - Run `just check` before every commit. All checks must pass.
 - Update `CHANGELOG.md` when adding features or fixing bugs.
+
+## Debugging
+
+Hidden commands for debugging the formatter:
+
+- `echo 'code' | nufmt --debug-tokens` - show parser tokens for stdin
