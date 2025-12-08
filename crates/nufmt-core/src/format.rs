@@ -248,6 +248,13 @@ struct Formatter<'a> {
     collection_multiline_stack: Vec<bool>,
     /// Stack tracking whether each nested block/closure should be multiline.
     block_multiline_stack: Vec<bool>,
+    /// Stack tracking gap blocks (braces in gaps, like match blocks).
+    /// Each entry is true if the block should be multiline.
+    gap_block_stack: Vec<bool>,
+    /// Depth of string interpolation nesting (don't break lines inside).
+    string_interpolation_depth: usize,
+    /// True if we just opened a multiline block (for inline comment handling).
+    just_opened_multiline_block: bool,
     /// The flattened token list for lookahead.
     tokens: &'a [(Span, FlatShape)],
     /// Current token index.
@@ -271,6 +278,9 @@ impl<'a> Formatter<'a> {
             current_line_len: 0,
             collection_multiline_stack: Vec::new(),
             block_multiline_stack: Vec::new(),
+            gap_block_stack: Vec::new(),
+            string_interpolation_depth: 0,
+            just_opened_multiline_block: false,
             tokens,
             token_index: 0,
         }
@@ -309,6 +319,20 @@ impl<'a> Formatter<'a> {
 
         // Dispatch to specialized handlers based on token shape
         match shape {
+            FlatShape::StringInterpolation => {
+                // Track entry/exit from string interpolation
+                // StringInterpolation tokens mark the start ($', $") and end (', ") of interpolations
+                self.process_gap(span.start);
+                if token.starts_with('$') {
+                    // Starting an interpolation
+                    self.string_interpolation_depth += 1;
+                } else {
+                    // Ending an interpolation
+                    self.string_interpolation_depth = self.string_interpolation_depth.saturating_sub(1);
+                }
+                self.write_token(token, span);
+                return;
+            }
             FlatShape::Block | FlatShape::Closure => {
                 if self.try_process_block(token, span) {
                     return;
@@ -348,6 +372,11 @@ impl<'a> Formatter<'a> {
     fn maybe_break_line_for_token(&mut self, token: &str, shape: &FlatShape) {
         // Only break if we're not at line start and would exceed max_width
         if self.line_start {
+            return;
+        }
+
+        // Don't break inside string interpolations - would corrupt the string
+        if self.string_interpolation_depth > 0 {
             return;
         }
 
@@ -506,6 +535,9 @@ impl<'a> Formatter<'a> {
 
             first_line = false;
         }
+
+        // Reset the flag after processing gap (only relevant for first line)
+        self.just_opened_multiline_block = false;
     }
 
     /// Process a comment found in a gap.
@@ -518,7 +550,19 @@ impl<'a> Formatter<'a> {
     ) {
         let comment = &trimmed[comment_start..];
 
-        if first_line && !self.line_start {
+        // Check if this is an inline comment that should stay on the block opening line
+        // e.g., `{|| # comment` should stay as `{|| # comment` not become `{||\n  # comment`
+        let keep_inline = first_line && self.just_opened_multiline_block;
+        if keep_inline {
+            // Undo the newline we pushed and put comment inline instead
+            if self.output.ends_with('\n') {
+                self.output.pop();
+                self.current_line_len = self.output.rfind('\n').map_or(self.output.len(), |pos| self.output.len() - pos - 1);
+                self.line_start = false;
+            }
+            self.push_char(' ');
+            self.just_opened_multiline_block = false;
+        } else if first_line && !self.line_start {
             // Inline comment on same line - add space before
             if !self.output.ends_with(' ') {
                 self.push_char(' ');
@@ -545,8 +589,81 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    /// Process non-comment content in a gap (e.g., `=`, `;`, `.`).
+    /// Process non-comment content in a gap (e.g., `=`, `;`, `.`, `{`, `}`).
     fn process_gap_content(&mut self, line: &str, trimmed: &str, has_more_lines: bool) {
+        // Handle opening brace in gap (like match blocks)
+        if trimmed == "{" {
+            if !self.output.is_empty() && !self.line_start && !self.output.ends_with(' ') {
+                self.push_char(' ');
+            }
+            if self.line_start {
+                self.write_indent();
+            }
+            self.push_char('{');
+            // Track this as a gap block - multiline if followed by more content
+            self.gap_block_stack.push(has_more_lines);
+            if has_more_lines {
+                self.indent_level += 1;
+                self.push_newline();
+            } else {
+                self.push_char(' ');
+                self.line_start = false;
+            }
+            return;
+        }
+
+        // Handle closing brace in gap
+        if trimmed == "}" || trimmed == ",}" || trimmed.ends_with('}') {
+            // Count closing braces in this token
+            let close_count = trimmed.chars().filter(|&c| c == '}').count();
+            // Handle any content before the closing brace(s)
+            let before_braces = trimmed.trim_end_matches('}').trim_end_matches(',').trim();
+            if !before_braces.is_empty() {
+                if !self.output.is_empty() && !self.line_start && !self.output.ends_with(' ') {
+                    self.push_char(' ');
+                }
+                if self.line_start {
+                    self.write_indent();
+                }
+                self.push_str(before_braces);
+            }
+            // Handle trailing comma before closing brace
+            if trimmed.contains(',')
+                && self.config.trailing_comma == TrailingComma::Always
+                && !self.output.ends_with(',')
+            {
+                self.push_char(',');
+            }
+            // Close each brace
+            for _ in 0..close_count {
+                let is_multiline = self.gap_block_stack.pop().unwrap_or(false);
+                if is_multiline {
+                    self.indent_level = self.indent_level.saturating_sub(1);
+                    if !self.output.ends_with('\n') {
+                        self.push_newline();
+                    }
+                    if self.line_start {
+                        self.write_indent();
+                    }
+                } else if !self.output.ends_with(' ') {
+                    self.push_char(' ');
+                }
+                self.push_char('}');
+                self.line_start = false;
+            }
+            if has_more_lines {
+                self.push_newline();
+            }
+            return;
+        }
+
+        // Handle comma in gap when inside multiline gap block
+        if trimmed == "," && has_more_lines && self.is_in_multiline_gap_block() {
+            self.push_char(',');
+            self.push_newline();
+            return;
+        }
+
         // No space before punctuation that attaches to previous token
         let no_space_before = trimmed.starts_with(';')
             || trimmed.starts_with(',')
@@ -576,6 +693,11 @@ impl<'a> Formatter<'a> {
         }
     }
 
+    /// Check if we're inside a multiline gap block.
+    fn is_in_multiline_gap_block(&self) -> bool {
+        self.gap_block_stack.last().copied().unwrap_or(false)
+    }
+
     /// Process an empty line in a gap (whitespace only).
     fn process_gap_empty(&mut self, gap: &str, first_line: bool, has_more_lines: bool) {
         if has_more_lines {
@@ -601,11 +723,19 @@ impl<'a> Formatter<'a> {
 
         let (params, inner) = parse_block_content(token, trimmed, has_open, has_close);
 
-        if has_open {
-            self.write_block_open(params, inner, has_close, token_has_newline);
-        }
+        let skip_first_line = if has_open {
+            self.write_block_open(params, inner, has_close, token_has_newline)
+        } else {
+            false
+        };
 
-        self.write_block_inner(inner);
+        // If we already wrote the first line comment inline, skip it in write_block_inner
+        let inner_to_write = if skip_first_line {
+            inner.lines().skip(1).collect::<Vec<_>>().join("\n")
+        } else {
+            inner.to_string()
+        };
+        self.write_block_inner(&inner_to_write);
 
         if has_close {
             self.write_block_close();
@@ -679,14 +809,16 @@ impl<'a> Formatter<'a> {
         length + 1 // Add space before closing brace
     }
 
-    /// Write the opening brace of a block with optional closure parameters.
+    /// Write the opening of a block/closure.
+    ///
+    /// Returns true if the first line (a comment) was written inline.
     fn write_block_open(
         &mut self,
         params: Option<&str>,
         inner: &str,
         has_close: bool,
         token_has_newline: bool,
-    ) {
+    ) -> bool {
         if !self.line_start && !self.output.ends_with(' ') {
             self.push_char(' ');
         }
@@ -719,31 +851,44 @@ impl<'a> Formatter<'a> {
         };
         let would_exceed = self.current_line_len + block_length > self.config.max_width;
 
+        // Check if first line is an inline comment (should stay on same line as brace)
+        let first_line_is_comment = first_trimmed.starts_with('#');
+
         // For split blocks, empty inner is expected (content comes later)
         // So we don't use first_trimmed.is_empty() as a signal for multiline
         // But we DO check if the token itself contains a newline (like "{\n")
         let force_multiline = if has_close {
             first_trimmed.is_empty()
-                || first_trimmed.starts_with('#')
-                || source_is_multiline
+                || (first_line_is_comment && source_is_multiline)
+                || (!first_line_is_comment && source_is_multiline)
                 || would_exceed
         } else {
             // Split block - check token newline, comments, or would exceed
             token_has_newline
-                || first_trimmed.starts_with('#')
-                || source_is_multiline
+                || (first_line_is_comment && source_is_multiline)
+                || (!first_line_is_comment && source_is_multiline)
                 || would_exceed
         };
 
         // Push to stack for tracking
         self.block_multiline_stack.push(force_multiline);
 
-        if force_multiline {
+        if first_line_is_comment && source_is_multiline {
+            // First line is a comment and there's more content - keep comment inline
+            self.push_char(' ');
+            self.push_str(first_trimmed);
+            self.push_newline();
+            self.line_start = true;
+            return true; // Signal that we already wrote the first line
+        } else if force_multiline {
+            // Track that we just opened a multiline block - next gap's inline comment should stay inline
+            self.just_opened_multiline_block = true;
             self.push_newline();
         } else {
             self.push_char(' ');
             self.line_start = false;
         }
+        false
     }
 
     /// Write the inner content of a block.
@@ -754,11 +899,37 @@ impl<'a> Formatter<'a> {
                 continue;
             }
 
+            // Handle closing brace that belongs to a gap block
+            if line_trimmed == "}" && !self.gap_block_stack.is_empty() {
+                let is_multiline = self.gap_block_stack.pop().unwrap_or(false);
+                if is_multiline {
+                    self.indent_level = self.indent_level.saturating_sub(1);
+                    if !self.output.ends_with('\n') {
+                        self.push_newline();
+                    }
+                    if self.line_start {
+                        self.write_indent();
+                    }
+                } else if !self.output.ends_with(' ') {
+                    self.push_char(' ');
+                }
+                self.push_char('}');
+                self.push_newline();
+                continue;
+            }
+
             if self.line_start {
                 self.write_indent();
             }
             self.push_str(line_trimmed);
-            self.push_newline();
+
+            // Don't emit newline after external command operator (^)
+            // It must stay attached to the command name
+            if line_trimmed == "^" {
+                self.line_start = false;
+            } else {
+                self.push_newline();
+            }
         }
     }
 

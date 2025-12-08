@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2025-12-07
+
+### Fixed
+
+- External command caret (`^`) no longer separates from command name
+- Match expressions maintain proper multiline formatting with closing brace on correct line
+- String interpolations no longer break across lines (preserves string integrity)
+- Inline comments after closure params (`{|| # comment`) stay on same line
+
 ## [0.6.0] - 2025-12-07
 
 ### Added
@@ -98,7 +107,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Parse error messages with source locations
 - Nix flake for installation and development
 
-[Unreleased]: https://github.com/psychollama/nufmt/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/psychollama/nufmt/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/psychollama/nufmt/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/psychollama/nufmt/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/psychollama/nufmt/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/psychollama/nufmt/compare/v0.3.0...v0.4.0
