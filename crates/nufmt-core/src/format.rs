@@ -248,6 +248,9 @@ struct Formatter<'a> {
     collection_multiline_stack: Vec<bool>,
     /// Stack tracking whether each nested block/closure should be multiline.
     block_multiline_stack: Vec<bool>,
+    /// Stack tracking gap blocks (braces in gaps, like match blocks).
+    /// Each entry is true if the block should be multiline.
+    gap_block_stack: Vec<bool>,
     /// The flattened token list for lookahead.
     tokens: &'a [(Span, FlatShape)],
     /// Current token index.
@@ -271,6 +274,7 @@ impl<'a> Formatter<'a> {
             current_line_len: 0,
             collection_multiline_stack: Vec::new(),
             block_multiline_stack: Vec::new(),
+            gap_block_stack: Vec::new(),
             tokens,
             token_index: 0,
         }
@@ -545,8 +549,81 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    /// Process non-comment content in a gap (e.g., `=`, `;`, `.`).
+    /// Process non-comment content in a gap (e.g., `=`, `;`, `.`, `{`, `}`).
     fn process_gap_content(&mut self, line: &str, trimmed: &str, has_more_lines: bool) {
+        // Handle opening brace in gap (like match blocks)
+        if trimmed == "{" {
+            if !self.output.is_empty() && !self.line_start && !self.output.ends_with(' ') {
+                self.push_char(' ');
+            }
+            if self.line_start {
+                self.write_indent();
+            }
+            self.push_char('{');
+            // Track this as a gap block - multiline if followed by more content
+            self.gap_block_stack.push(has_more_lines);
+            if has_more_lines {
+                self.indent_level += 1;
+                self.push_newline();
+            } else {
+                self.push_char(' ');
+                self.line_start = false;
+            }
+            return;
+        }
+
+        // Handle closing brace in gap
+        if trimmed == "}" || trimmed == ",}" || trimmed.ends_with('}') {
+            // Count closing braces in this token
+            let close_count = trimmed.chars().filter(|&c| c == '}').count();
+            // Handle any content before the closing brace(s)
+            let before_braces = trimmed.trim_end_matches('}').trim_end_matches(',').trim();
+            if !before_braces.is_empty() {
+                if !self.output.is_empty() && !self.line_start && !self.output.ends_with(' ') {
+                    self.push_char(' ');
+                }
+                if self.line_start {
+                    self.write_indent();
+                }
+                self.push_str(before_braces);
+            }
+            // Handle trailing comma before closing brace
+            if trimmed.contains(',')
+                && self.config.trailing_comma == TrailingComma::Always
+                && !self.output.ends_with(',')
+            {
+                self.push_char(',');
+            }
+            // Close each brace
+            for _ in 0..close_count {
+                let is_multiline = self.gap_block_stack.pop().unwrap_or(false);
+                if is_multiline {
+                    self.indent_level = self.indent_level.saturating_sub(1);
+                    if !self.output.ends_with('\n') {
+                        self.push_newline();
+                    }
+                    if self.line_start {
+                        self.write_indent();
+                    }
+                } else if !self.output.ends_with(' ') {
+                    self.push_char(' ');
+                }
+                self.push_char('}');
+                self.line_start = false;
+            }
+            if has_more_lines {
+                self.push_newline();
+            }
+            return;
+        }
+
+        // Handle comma in gap when inside multiline gap block
+        if trimmed == "," && has_more_lines && self.is_in_multiline_gap_block() {
+            self.push_char(',');
+            self.push_newline();
+            return;
+        }
+
         // No space before punctuation that attaches to previous token
         let no_space_before = trimmed.starts_with(';')
             || trimmed.starts_with(',')
@@ -574,6 +651,11 @@ impl<'a> Formatter<'a> {
         {
             self.push_char(' ');
         }
+    }
+
+    /// Check if we're inside a multiline gap block.
+    fn is_in_multiline_gap_block(&self) -> bool {
+        self.gap_block_stack.last().copied().unwrap_or(false)
     }
 
     /// Process an empty line in a gap (whitespace only).
@@ -751,6 +833,25 @@ impl<'a> Formatter<'a> {
         for line in inner.lines() {
             let line_trimmed = line.trim();
             if line_trimmed.is_empty() {
+                continue;
+            }
+
+            // Handle closing brace that belongs to a gap block
+            if line_trimmed == "}" && !self.gap_block_stack.is_empty() {
+                let is_multiline = self.gap_block_stack.pop().unwrap_or(false);
+                if is_multiline {
+                    self.indent_level = self.indent_level.saturating_sub(1);
+                    if !self.output.ends_with('\n') {
+                        self.push_newline();
+                    }
+                    if self.line_start {
+                        self.write_indent();
+                    }
+                } else if !self.output.ends_with(' ') {
+                    self.push_char(' ');
+                }
+                self.push_char('}');
+                self.push_newline();
                 continue;
             }
 
