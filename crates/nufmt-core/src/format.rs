@@ -253,6 +253,8 @@ struct Formatter<'a> {
     gap_block_stack: Vec<bool>,
     /// Depth of string interpolation nesting (don't break lines inside).
     string_interpolation_depth: usize,
+    /// True if we just opened a multiline block (for inline comment handling).
+    just_opened_multiline_block: bool,
     /// The flattened token list for lookahead.
     tokens: &'a [(Span, FlatShape)],
     /// Current token index.
@@ -278,6 +280,7 @@ impl<'a> Formatter<'a> {
             block_multiline_stack: Vec::new(),
             gap_block_stack: Vec::new(),
             string_interpolation_depth: 0,
+            just_opened_multiline_block: false,
             tokens,
             token_index: 0,
         }
@@ -532,6 +535,9 @@ impl<'a> Formatter<'a> {
 
             first_line = false;
         }
+
+        // Reset the flag after processing gap (only relevant for first line)
+        self.just_opened_multiline_block = false;
     }
 
     /// Process a comment found in a gap.
@@ -544,7 +550,19 @@ impl<'a> Formatter<'a> {
     ) {
         let comment = &trimmed[comment_start..];
 
-        if first_line && !self.line_start {
+        // Check if this is an inline comment that should stay on the block opening line
+        // e.g., `{|| # comment` should stay as `{|| # comment` not become `{||\n  # comment`
+        let keep_inline = first_line && self.just_opened_multiline_block;
+        if keep_inline {
+            // Undo the newline we pushed and put comment inline instead
+            if self.output.ends_with('\n') {
+                self.output.pop();
+                self.current_line_len = self.output.rfind('\n').map_or(self.output.len(), |pos| self.output.len() - pos - 1);
+                self.line_start = false;
+            }
+            self.push_char(' ');
+            self.just_opened_multiline_block = false;
+        } else if first_line && !self.line_start {
             // Inline comment on same line - add space before
             if !self.output.ends_with(' ') {
                 self.push_char(' ');
@@ -705,11 +723,19 @@ impl<'a> Formatter<'a> {
 
         let (params, inner) = parse_block_content(token, trimmed, has_open, has_close);
 
-        if has_open {
-            self.write_block_open(params, inner, has_close, token_has_newline);
-        }
+        let skip_first_line = if has_open {
+            self.write_block_open(params, inner, has_close, token_has_newline)
+        } else {
+            false
+        };
 
-        self.write_block_inner(inner);
+        // If we already wrote the first line comment inline, skip it in write_block_inner
+        let inner_to_write = if skip_first_line {
+            inner.lines().skip(1).collect::<Vec<_>>().join("\n")
+        } else {
+            inner.to_string()
+        };
+        self.write_block_inner(&inner_to_write);
 
         if has_close {
             self.write_block_close();
@@ -783,14 +809,16 @@ impl<'a> Formatter<'a> {
         length + 1 // Add space before closing brace
     }
 
-    /// Write the opening brace of a block with optional closure parameters.
+    /// Write the opening of a block/closure.
+    ///
+    /// Returns true if the first line (a comment) was written inline.
     fn write_block_open(
         &mut self,
         params: Option<&str>,
         inner: &str,
         has_close: bool,
         token_has_newline: bool,
-    ) {
+    ) -> bool {
         if !self.line_start && !self.output.ends_with(' ') {
             self.push_char(' ');
         }
@@ -823,31 +851,44 @@ impl<'a> Formatter<'a> {
         };
         let would_exceed = self.current_line_len + block_length > self.config.max_width;
 
+        // Check if first line is an inline comment (should stay on same line as brace)
+        let first_line_is_comment = first_trimmed.starts_with('#');
+
         // For split blocks, empty inner is expected (content comes later)
         // So we don't use first_trimmed.is_empty() as a signal for multiline
         // But we DO check if the token itself contains a newline (like "{\n")
         let force_multiline = if has_close {
             first_trimmed.is_empty()
-                || first_trimmed.starts_with('#')
-                || source_is_multiline
+                || (first_line_is_comment && source_is_multiline)
+                || (!first_line_is_comment && source_is_multiline)
                 || would_exceed
         } else {
             // Split block - check token newline, comments, or would exceed
             token_has_newline
-                || first_trimmed.starts_with('#')
-                || source_is_multiline
+                || (first_line_is_comment && source_is_multiline)
+                || (!first_line_is_comment && source_is_multiline)
                 || would_exceed
         };
 
         // Push to stack for tracking
         self.block_multiline_stack.push(force_multiline);
 
-        if force_multiline {
+        if first_line_is_comment && source_is_multiline {
+            // First line is a comment and there's more content - keep comment inline
+            self.push_char(' ');
+            self.push_str(first_trimmed);
+            self.push_newline();
+            self.line_start = true;
+            return true; // Signal that we already wrote the first line
+        } else if force_multiline {
+            // Track that we just opened a multiline block - next gap's inline comment should stay inline
+            self.just_opened_multiline_block = true;
             self.push_newline();
         } else {
             self.push_char(' ');
             self.line_start = false;
         }
+        false
     }
 
     /// Write the inner content of a block.
