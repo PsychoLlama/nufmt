@@ -758,7 +758,14 @@ impl<'a> Formatter<'a> {
                 self.write_indent();
             }
             self.push_str(line_trimmed);
-            self.push_newline();
+
+            // Don't emit newline after external command operator (^)
+            // It must stay attached to the command name
+            if line_trimmed == "^" {
+                self.line_start = false;
+            } else {
+                self.push_newline();
+            }
         }
     }
 
