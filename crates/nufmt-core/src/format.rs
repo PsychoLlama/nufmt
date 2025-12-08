@@ -328,7 +328,8 @@ impl<'a> Formatter<'a> {
                     self.string_interpolation_depth += 1;
                 } else {
                     // Ending an interpolation
-                    self.string_interpolation_depth = self.string_interpolation_depth.saturating_sub(1);
+                    self.string_interpolation_depth =
+                        self.string_interpolation_depth.saturating_sub(1);
                 }
                 self.write_token(token, span);
                 return;
@@ -557,7 +558,10 @@ impl<'a> Formatter<'a> {
             // Undo the newline we pushed and put comment inline instead
             if self.output.ends_with('\n') {
                 self.output.pop();
-                self.current_line_len = self.output.rfind('\n').map_or(self.output.len(), |pos| self.output.len() - pos - 1);
+                self.current_line_len = self
+                    .output
+                    .rfind('\n')
+                    .map_or(self.output.len(), |pos| self.output.len() - pos - 1);
                 self.line_start = false;
             }
             self.push_char(' ');
@@ -858,16 +862,10 @@ impl<'a> Formatter<'a> {
         // So we don't use first_trimmed.is_empty() as a signal for multiline
         // But we DO check if the token itself contains a newline (like "{\n")
         let force_multiline = if has_close {
-            first_trimmed.is_empty()
-                || (first_line_is_comment && source_is_multiline)
-                || (!first_line_is_comment && source_is_multiline)
-                || would_exceed
+            first_trimmed.is_empty() || source_is_multiline || would_exceed
         } else {
-            // Split block - check token newline, comments, or would exceed
-            token_has_newline
-                || (first_line_is_comment && source_is_multiline)
-                || (!first_line_is_comment && source_is_multiline)
-                || would_exceed
+            // Split block - check token newline, or would exceed
+            token_has_newline || source_is_multiline || would_exceed
         };
 
         // Push to stack for tracking
