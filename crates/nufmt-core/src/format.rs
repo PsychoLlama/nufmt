@@ -251,6 +251,8 @@ struct Formatter<'a> {
     /// Stack tracking gap blocks (braces in gaps, like match blocks).
     /// Each entry is true if the block should be multiline.
     gap_block_stack: Vec<bool>,
+    /// Depth of string interpolation nesting (don't break lines inside).
+    string_interpolation_depth: usize,
     /// The flattened token list for lookahead.
     tokens: &'a [(Span, FlatShape)],
     /// Current token index.
@@ -275,6 +277,7 @@ impl<'a> Formatter<'a> {
             collection_multiline_stack: Vec::new(),
             block_multiline_stack: Vec::new(),
             gap_block_stack: Vec::new(),
+            string_interpolation_depth: 0,
             tokens,
             token_index: 0,
         }
@@ -313,6 +316,20 @@ impl<'a> Formatter<'a> {
 
         // Dispatch to specialized handlers based on token shape
         match shape {
+            FlatShape::StringInterpolation => {
+                // Track entry/exit from string interpolation
+                // StringInterpolation tokens mark the start ($', $") and end (', ") of interpolations
+                self.process_gap(span.start);
+                if token.starts_with('$') {
+                    // Starting an interpolation
+                    self.string_interpolation_depth += 1;
+                } else {
+                    // Ending an interpolation
+                    self.string_interpolation_depth = self.string_interpolation_depth.saturating_sub(1);
+                }
+                self.write_token(token, span);
+                return;
+            }
             FlatShape::Block | FlatShape::Closure => {
                 if self.try_process_block(token, span) {
                     return;
@@ -352,6 +369,11 @@ impl<'a> Formatter<'a> {
     fn maybe_break_line_for_token(&mut self, token: &str, shape: &FlatShape) {
         // Only break if we're not at line start and would exceed max_width
         if self.line_start {
+            return;
+        }
+
+        // Don't break inside string interpolations - would corrupt the string
+        if self.string_interpolation_depth > 0 {
             return;
         }
 
