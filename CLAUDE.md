@@ -9,6 +9,7 @@ Nushell code formatter. See `ref/plan.md` for implementation plan.
 - `just fmt` - check formatting (uses treefmt for Rust and Nix)
 - `just lint` - run clippy
 - `just test` - run tests
+- `bin/release <version>` - create a release (e.g., `bin/release 0.2.0`)
 
 ## Rules
 
