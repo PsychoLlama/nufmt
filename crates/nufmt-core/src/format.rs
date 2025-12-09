@@ -391,6 +391,11 @@ impl<'a> Formatter<'a> {
             return;
         }
 
+        // Don't break before tokens that already start with newline
+        if token.starts_with('\n') {
+            return;
+        }
+
         // Token length (space already added by process_gap)
         let token_len = token.len();
 
@@ -564,6 +569,13 @@ impl<'a> Formatter<'a> {
         has_more_lines: bool,
     ) {
         let comment = &trimmed[comment_start..];
+        let before_comment = trimmed[..comment_start].trim();
+
+        // No space before punctuation that attaches to previous token
+        let has_punctuation_before = before_comment.starts_with(';')
+            || before_comment.starts_with(',')
+            || before_comment.starts_with('.')
+            || before_comment.starts_with('?');
 
         // Check if this is an inline comment that should stay on the block opening line
         // e.g., `{|| # comment` should stay as `{|| # comment` not become `{||\n  # comment`
@@ -581,8 +593,8 @@ impl<'a> Formatter<'a> {
             self.push_char(' ');
             self.just_opened_multiline_block = false;
         } else if first_line && !self.line_start {
-            // Inline comment on same line - add space before
-            if !self.output.ends_with(' ') {
+            // Inline comment on same line - add space before (but not before punctuation)
+            if !has_punctuation_before && !self.output.ends_with(' ') {
                 self.push_char(' ');
             }
         } else if self.line_start {
@@ -590,10 +602,9 @@ impl<'a> Formatter<'a> {
             self.line_start = false;
         }
 
-        // Handle content before the comment (like = in let)
-        let before_comment = trimmed[..comment_start].trim();
+        // Handle content before the comment (like = in let, or ; before a comment)
         if !before_comment.is_empty() {
-            if !self.output.ends_with(' ') && !self.line_start {
+            if !has_punctuation_before && !self.output.ends_with(' ') && !self.line_start {
                 self.push_char(' ');
             }
             self.push_str(before_comment);
