@@ -20,6 +20,7 @@ nu-command = "0.109"
 nu-parser = "0.109"
 nu-protocol = "0.109"
 nufmt-core = { path = "crates/nufmt-core" }
+pretty = "0.12"
 rayon = "1.10"
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
