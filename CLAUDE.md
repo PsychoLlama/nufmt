@@ -16,6 +16,16 @@ Nushell code formatter. See `ref/plan.md` for implementation plan.
 - Run `just check` before every commit. All checks must pass.
 - Update `CHANGELOG.md` when adding features or fixing bugs.
 
+## Releasing
+
+1. Update `CHANGELOG.md`: move items from `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD`
+2. Add comparison link at bottom: `[X.Y.Z]: https://github.com/psychollama/nufmt/compare/vPREV...vX.Y.Z`
+3. Update `[Unreleased]` link to compare against new version
+4. Bump version in `Cargo.toml` (`workspace.package.version`)
+5. Commit: `git commit -am "Bump version to X.Y.Z"`
+6. Push: `git push origin main`
+7. Run: `bin/release X.Y.Z`
+
 ## Debugging
 
 Hidden subcommands for debugging the formatter:
