@@ -21,8 +21,8 @@ jobs:
       - name: Run checks
         run: nix develop --command just check
 
-  build:
-    name: Build
+  build-linux:
+    name: Build (Linux x86_64)
     needs: check
     runs-on: ubuntu-latest
     steps:
@@ -41,9 +41,29 @@ jobs:
           name: nufmt-x86_64-linux
           path: target/release/nufmt
 
+  build-macos:
+    name: Build (macOS ARM64)
+    needs: check
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: DeterminateSystems/nix-installer-action@v21
+
+      - uses: DeterminateSystems/magic-nix-cache-action@v13
+
+      - name: Build release binary
+        run: nix develop --command just build
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nufmt-aarch64-darwin
+          path: target/release/nufmt
+
   release:
     name: Release
-    needs: build
+    needs: [build-linux, build-macos]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -62,7 +82,9 @@ jobs:
           find artifacts -type f
           mkdir -p release
           cp artifacts/nufmt-x86_64-linux/nufmt release/nufmt-x86_64-linux
+          cp artifacts/nufmt-aarch64-darwin/nufmt release/nufmt-aarch64-darwin
           chmod +x release/nufmt-x86_64-linux
+          chmod +x release/nufmt-aarch64-darwin
 
       - name: Create release
         uses: softprops/action-gh-release@v2
@@ -70,3 +92,4 @@ jobs:
           generate_release_notes: true
           files: |
             release/nufmt-x86_64-linux
+            release/nufmt-aarch64-darwin

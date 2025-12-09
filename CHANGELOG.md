@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Optional access operator (`?`) no longer disappears in pipelines (e.g., `$env.VAR?`)
 - Multiline records/lists with trailing commas are now idempotent (formatting twice yields same result)
+- Nested records with optional accessors now format correctly (e.g., `{ nested: { value: $env.HOME? } }`)
 
 ## [0.7.0] - 2025-12-07
 

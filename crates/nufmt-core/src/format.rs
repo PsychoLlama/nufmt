@@ -1075,25 +1075,46 @@ impl<'a> Formatter<'a> {
             return;
         }
 
-        // Handle closing brackets - may have leading newline
-        if trimmed == "}" || trimmed == "]" {
-            let was_multiline = self.collection_multiline_stack.pop().unwrap_or(false);
-            if was_multiline {
-                // Handle trailing comma for multiline collections
-                self.maybe_add_trailing_comma();
+        // Handle closing brackets - may have leading newline or prefix content (e.g., "?\n}")
+        // Check if token ends with closing bracket (handles cases like "?}" from "$env.VAR?\n}")
+        if trimmed == "}" || trimmed == "]" || trimmed.ends_with('}') || trimmed.ends_with(']') {
+            // Extract any prefix content before the closing bracket(s)
+            let bracket_char = if trimmed.contains('}') { '}' } else { ']' };
+            let prefix = trimmed.trim_end_matches(bracket_char);
 
-                if !self.output.ends_with('\n') {
+            // Write prefix content (like "?") attached to previous token
+            // But skip commas - they're handled separately below
+            let prefix_without_comma = prefix.trim_end_matches(',');
+            if !prefix_without_comma.is_empty() {
+                self.push_str(prefix_without_comma);
+            }
+
+            // Count how many closing brackets we have
+            let bracket_count = trimmed.chars().filter(|&c| c == bracket_char).count();
+
+            for _ in 0..bracket_count {
+                let was_multiline = self.collection_multiline_stack.pop().unwrap_or(false);
+                if was_multiline {
+                    // Handle trailing comma for multiline collections
+                    // Add comma if needed (either from prefix or via maybe_add_trailing_comma)
+                    if !self.output.trim_end().ends_with(',') {
+                        self.maybe_add_trailing_comma();
+                    }
+
                     self.indent_level = self.indent_level.saturating_sub(1);
+                    // Remove any trailing whitespace before adding proper newline+indent
+                    let trimmed_len = self.output.trim_end().len();
+                    self.output.truncate(trimmed_len);
                     self.push_newline();
                     self.write_indent();
+                } else if self.config.bracket_spacing == BracketSpacing::Spaced {
+                    // Add space before closing bracket for single-line collections
+                    if !self.output.ends_with(' ') {
+                        self.push_char(' ');
+                    }
                 }
-            } else if self.config.bracket_spacing == BracketSpacing::Spaced {
-                // Add space before closing bracket for single-line collections
-                if !self.output.ends_with(' ') {
-                    self.push_char(' ');
-                }
+                self.push_char(bracket_char);
             }
-            self.push_str(trimmed);
             self.line_start = false;
             return;
         }
