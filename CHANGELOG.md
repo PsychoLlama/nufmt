@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Optional access operator (`?`) no longer disappears in pipelines (e.g., `$env.VAR?`)
+- Multiline records/lists with trailing commas are now idempotent (formatting twice yields same result)
+
 ## [0.7.0] - 2025-12-07
 
 ### Changed

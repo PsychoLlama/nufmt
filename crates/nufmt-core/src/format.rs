@@ -474,6 +474,20 @@ impl<'a> Formatter<'a> {
     /// Process a pipe token with proper spacing and line breaking.
     fn process_pipe_token(&mut self, token: &'a str, span: Span) {
         let gap = &self.source[self.last_end..span.start];
+
+        // Check for non-whitespace content before the pipe (e.g., "?" in $env.VAR?)
+        // This content must be preserved before we handle the pipe.
+        let gap_content: String = gap
+            .lines()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        if !gap_content.is_empty() {
+            // Write any gap content (like "?") attached to the previous token
+            self.push_str(&gap_content);
+        }
+
         let has_newline = gap.contains('\n');
 
         // " | " adds 3 characters - break line if needed
@@ -1092,8 +1106,12 @@ impl<'a> Formatter<'a> {
         }
 
         // Handle comma - normalize to ", " or newline for multiline
+        // Note: token may be ",\n..." (comma with trailing newline) - we handle
+        // the comma here and let the newline handling below take care of the rest.
         if trimmed == "," {
             if self.should_be_multiline() {
+                // In multiline mode, write comma then newline
+                self.push_char(',');
                 self.push_newline();
             } else {
                 self.push_str(", ");
@@ -1800,5 +1818,94 @@ mod tests {
             newline_count, 1,
             "Expected single line command in: {result:?}"
         );
+    }
+
+    // Idempotency tests - formatting twice should yield the same result
+
+    /// Helper to assert idempotency: format once, then format again, results should match.
+    fn assert_idempotent(source: &str, config: &Config) {
+        let first = format_source(source, config).unwrap();
+        let second = format_source(&first, config).unwrap();
+        assert_eq!(
+            first, second,
+            "Formatting is not idempotent!\nFirst pass:\n{first}\nSecond pass:\n{second}"
+        );
+    }
+
+    #[test]
+    fn test_idempotent_multiline_record_with_commas() {
+        let source = "{\n  a: 1\n  b: 2\n}";
+        let config = Config::default();
+        assert_idempotent(source, &config);
+    }
+
+    #[test]
+    fn test_idempotent_multiline_record_already_formatted() {
+        let source = "{\n  a: 1,\n  b: 2,\n}";
+        let config = Config::default();
+        assert_idempotent(source, &config);
+    }
+
+    #[test]
+    fn test_idempotent_multiline_list() {
+        let source = "[\n  1\n  2\n  3\n]";
+        let config = Config::default();
+        assert_idempotent(source, &config);
+    }
+
+    #[test]
+    fn test_idempotent_pipeline_with_optional_env() {
+        let source = "$x\n  | default $env.VAR?\n  | default ~/fallback";
+        let config = Config::default();
+        assert_idempotent(source, &config);
+    }
+
+    #[test]
+    fn test_idempotent_complex_function() {
+        let source = r#"export def "repo root" [
+  suggested_root?: string
+] {
+  $suggested_root
+    | default $env.REPO_ROOT?
+    | default ~/projects
+    | path expand
+}"#;
+        let config = Config::default();
+        assert_idempotent(source, &config);
+    }
+
+    #[test]
+    fn test_idempotent_nested_records() {
+        let source = "{\n  outer: {\n    inner: 1\n  }\n}";
+        let config = Config::default();
+        assert_idempotent(source, &config);
+    }
+
+    #[test]
+    fn test_idempotent_closure() {
+        let source = "{|x, y| $x + $y}";
+        let config = Config::default();
+        assert_idempotent(source, &config);
+    }
+
+    #[test]
+    fn test_idempotent_multiline_closure() {
+        let source = "{|x|\n  $x + 1\n}";
+        let config = Config::default();
+        assert_idempotent(source, &config);
+    }
+
+    #[test]
+    fn test_idempotent_single_line_record() {
+        let source = "{a: 1, b: 2}";
+        let config = Config::default();
+        assert_idempotent(source, &config);
+    }
+
+    #[test]
+    fn test_idempotent_with_comments() {
+        let source = "{\n  a: 1 # comment\n  b: 2\n}";
+        let config = Config::default();
+        assert_idempotent(source, &config);
     }
 }
