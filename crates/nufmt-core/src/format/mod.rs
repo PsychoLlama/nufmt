@@ -5,6 +5,7 @@
 //! configured `max_width`.
 
 mod closure;
+mod delim;
 mod error;
 mod string;
 mod token;
@@ -24,6 +25,10 @@ use pretty::{Arena, DocAllocator, DocBuilder};
 
 use crate::{BracketSpacing, Config, TrailingComma};
 use closure::parse_closure_params;
+use delim::{
+    count_close_braces, ends_with_close_brace, ends_with_close_bracket, ends_with_close_paren,
+    is_close_bracket, is_open_bracket, starts_with_open_brace, starts_with_open_paren,
+};
 use string::convert_string_quotes;
 use token::{Token, preprocess_tokens};
 
@@ -511,9 +516,9 @@ impl<'a> Formatter<'a> {
     fn format_block_token(&mut self, token: &Token<'a>) -> Doc<'a> {
         let trimmed = token.text.trim();
 
-        if trimmed.starts_with('{') || trimmed.ends_with('}') {
+        if starts_with_open_brace(trimmed) || ends_with_close_brace(trimmed) {
             self.format_brace_block(token)
-        } else if trimmed.starts_with('(') || trimmed.ends_with(')') {
+        } else if starts_with_open_paren(trimmed) || ends_with_close_paren(trimmed) {
             self.format_paren_block(token)
         } else {
             self.arena.text(token.text)
@@ -523,12 +528,12 @@ impl<'a> Formatter<'a> {
     /// Format a brace-delimited block or closure.
     fn format_brace_block(&mut self, token: &Token<'a>) -> Doc<'a> {
         let trimmed = token.text.trim();
-        let has_open = trimmed.starts_with('{');
-        let has_close = trimmed.ends_with('}');
+        let has_open = starts_with_open_brace(trimmed);
+        let has_close = ends_with_close_brace(trimmed);
         let has_newline = token.text.contains('\n');
 
         // Count braces to detect multi-brace tokens (e.g., ",\n}\n}" from match inside def)
-        let close_count = trimmed.chars().filter(|&c| c == '}').count();
+        let close_count = count_close_braces(trimmed);
 
         // Handle multi-close tokens (common with match expressions)
         if !has_open && close_count > 1 {
@@ -730,8 +735,8 @@ impl<'a> Formatter<'a> {
     fn estimate_block_length(&self) -> (usize, bool) {
         self.estimate_delimited_length(
             |shape| matches!(shape, FlatShape::Block | FlatShape::Closure),
-            |trimmed| trimmed.starts_with('{'),
-            |trimmed| trimmed.ends_with('}'),
+            starts_with_open_brace,
+            ends_with_close_brace,
             |trimmed, _depth| trimmed.len(),
         )
     }
@@ -817,7 +822,7 @@ impl<'a> Formatter<'a> {
                 }
             }
             _ => {
-                if trimmed.ends_with('}') || trimmed.ends_with(']') {
+                if ends_with_close_bracket(trimmed) {
                     self.format_collection_close_complex(trimmed, has_newline)
                 } else if has_newline && trimmed.is_empty() {
                     self.format_newline_separator()
@@ -923,12 +928,12 @@ impl<'a> Formatter<'a> {
     fn estimate_collection_length(&self) -> (usize, bool) {
         self.estimate_delimited_length(
             |shape| matches!(shape, FlatShape::Record | FlatShape::List),
-            |trimmed| trimmed == "{" || trimmed == "[",
-            |trimmed| trimmed == "}" || trimmed == "]",
+            is_open_bracket,
+            is_close_bracket,
             |trimmed, depth| {
-                if trimmed == "{" || trimmed == "[" {
+                if is_open_bracket(trimmed) {
                     1
-                } else if trimmed == "}" || trimmed == "]" {
+                } else if is_close_bracket(trimmed) {
                     usize::from(depth > 1)
                 } else if trimmed == ":" || trimmed == "," {
                     2
