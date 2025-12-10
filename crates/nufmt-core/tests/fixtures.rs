@@ -22,47 +22,25 @@ fn test_fixture(name: &str) {
     );
 }
 
-#[test]
-fn test_fixture_simple() {
-    test_fixture("simple");
+macro_rules! fixture_tests {
+    ($($name:ident),* $(,)?) => {
+        $(
+            #[test]
+            fn $name() {
+                test_fixture(stringify!($name));
+            }
+        )*
+    };
 }
 
-#[test]
-fn test_fixture_blocks() {
-    test_fixture("blocks");
-}
-
-#[test]
-fn test_fixture_variables() {
-    test_fixture("variables");
-}
-
-#[test]
-fn test_fixture_comments() {
-    test_fixture("comments");
-}
-
-#[test]
-fn test_fixture_complex() {
-    test_fixture("complex");
-}
-
-#[test]
-fn test_fixture_empty() {
-    test_fixture("empty");
-}
-
-#[test]
-fn test_fixture_comments_only() {
-    test_fixture("comments_only");
-}
-
-#[test]
-fn test_fixture_deeply_nested() {
-    test_fixture("deeply_nested");
-}
-
-#[test]
-fn test_fixture_unicode() {
-    test_fixture("unicode");
-}
+fixture_tests!(
+    simple,
+    blocks,
+    variables,
+    comments,
+    complex,
+    empty,
+    comments_only,
+    deeply_nested,
+    unicode,
+);
