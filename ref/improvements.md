@@ -273,19 +273,19 @@ Replaced custom diff with `similar` crate, which handles all edge cases correctl
 ## Completed Tickets
 
 - **NUFMT-001:** Split format.rs into modules
+- **NUFMT-002:** Unify CLI and core enum types with optional clap feature
 - **NUFMT-003:** Extract common estimation logic
+- **NUFMT-004:** Add documentation for gap processing functions
+- **NUFMT-005:** Document manual indent tracking rationale
 - **NUFMT-006:** Replace diff with `similar` crate
 - **NUFMT-008:** Fixture test macro
 - **NUFMT-009:** Cache engine state with LazyLock
+- **NUFMT-010:** Extract delimiter helpers module
 - **NUFMT-011:** Add thiserror for error types
 - **NUFMT-012:** Use owo-colors for ANSI codes
 - **NUFMT-013:** Optimize multiline collection detection
+- **NUFMT-014:** Add tests for edge cases and config options
 
-## Remaining (Low Priority)
+## Remaining
 
-- **NUFMT-002:** CLI enum duplication (intentional separation of concerns)
-- **NUFMT-004:** Complex gap processing (works correctly, could use more docs)
-- **NUFMT-005:** Manual indent tracking (necessary workaround for pretty crate)
-- **NUFMT-007:** Parser limitation (upstream nu-parser issue)
-- **NUFMT-010:** Stringly-typed bracket matching (minor code smell)
-- **NUFMT-014:** Test coverage gaps (ongoing improvement area)
+- **NUFMT-007:** Parser limitation (upstream nu-parser issue, cannot fix)
