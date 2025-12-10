@@ -11,10 +11,15 @@ mod token;
 
 pub use error::{FormatError, SourceLocation};
 
+use std::sync::LazyLock;
+
 use nu_cmd_lang::create_default_context;
 use nu_command::add_shell_command_context;
 use nu_parser::{FlatShape, flatten_block, parse};
-use nu_protocol::{ParseError, engine::StateWorkingSet};
+use nu_protocol::{
+    ParseError,
+    engine::{EngineState, StateWorkingSet},
+};
 use pretty::{Arena, DocAllocator, DocBuilder};
 
 use crate::{BracketSpacing, Config, TrailingComma};
@@ -25,11 +30,12 @@ use token::{Token, preprocess_tokens};
 /// Type alias for our document builder.
 type Doc<'a> = DocBuilder<'a, Arena<'a>>;
 
-/// Create an engine state with all Nushell commands available for parsing.
-fn create_engine_state() -> nu_protocol::engine::EngineState {
+/// Cached engine state with all Nushell commands for parsing.
+/// Creating this is expensive (~10ms), so we cache it globally.
+static ENGINE_STATE: LazyLock<EngineState> = LazyLock::new(|| {
     let engine_state = create_default_context();
     add_shell_command_context(engine_state)
-}
+});
 
 /// Check if a parse error is a resolution error (module/file/command not found).
 const fn is_resolution_error(error: &ParseError) -> bool {
@@ -55,8 +61,7 @@ const fn is_resolution_error(error: &ParseError) -> bool {
 pub fn debug_tokens(source: &str) -> String {
     use std::fmt::Write;
 
-    let engine_state = create_engine_state();
-    let mut working_set = StateWorkingSet::new(&engine_state);
+    let mut working_set = StateWorkingSet::new(&ENGINE_STATE);
     let block = parse(&mut working_set, None, source.as_bytes(), false);
     let flattened = flatten_block(&working_set, &block);
 
@@ -100,8 +105,7 @@ pub fn debug_tokens(source: &str) -> String {
 ///
 /// Returns an error if the source code cannot be parsed.
 pub fn format_source(source: &str, config: &Config) -> Result<String, FormatError> {
-    let engine_state = create_engine_state();
-    let mut working_set = StateWorkingSet::new(&engine_state);
+    let mut working_set = StateWorkingSet::new(&ENGINE_STATE);
 
     let block = parse(&mut working_set, None, source.as_bytes(), false);
 
