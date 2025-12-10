@@ -145,14 +145,21 @@ fn format_tokens(
 }
 
 /// The formatter state.
+///
+/// Note on `indent_level`: We track indentation manually rather than using the
+/// `pretty` crate's `nest()` combinator. This is because `nest()` applies indentation
+/// to all lines within a group, but our token-based model processes gaps separately
+/// from tokens. When a gap contains a newline, we need to emit explicit indentation
+/// at that exact point, which doesn't integrate well with `nest()`'s automatic behavior.
 struct Formatter<'a> {
     arena: &'a Arena<'a>,
     tokens: &'a [Token<'a>],
     config: &'a Config,
     index: usize,
-    /// Track string interpolation depth.
+    /// Track string interpolation depth (e.g., inside `$"..."`).
     interp_depth: usize,
-    /// Current indentation level.
+    /// Current indentation level (number of indent units, not spaces).
+    /// Incremented when entering blocks/collections, decremented on exit.
     indent_level: usize,
     /// Stack tracking if each nested collection is multiline.
     /// Pushed on opening bracket, popped on closing bracket.
