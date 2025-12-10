@@ -328,7 +328,7 @@ impl<'a> Formatter<'a> {
     }
 
     /// Format a gap (whitespace and comments between tokens).
-    fn format_gap(&self, gap: &'a str) -> Doc<'a> {
+    fn format_gap(&mut self, gap: &'a str) -> Doc<'a> {
         if gap.is_empty() {
             return self.arena.nil();
         }
@@ -349,6 +349,17 @@ impl<'a> Formatter<'a> {
                 .space()
                 .append(self.arena.text(gap_trimmed))
                 .append(self.arena.space());
+        }
+
+        // Check if gap contains structural delimiters (e.g., match expression braces)
+        // or commas followed by newlines (match arms)
+        let has_open_brace = gap.contains('{');
+        let has_close_brace = gap.contains('}');
+        let has_comma_newline = gap.contains(",\n") || gap.contains(",\r\n");
+
+        // If gap contains braces or comma+newline, preserve the structure
+        if has_open_brace || has_close_brace || has_comma_newline {
+            return self.format_structural_gap(gap);
         }
 
         // Count newlines to detect blank lines
@@ -418,13 +429,10 @@ impl<'a> Formatter<'a> {
                 // Determine spacing after content
                 if has_more {
                     let next_line_trimmed = lines.peek().map_or("", |l| l.trim());
-                    if !trimmed.ends_with('{')
-                        && !trimmed.ends_with('.')
-                        && !next_line_trimmed.is_empty()
-                    {
+                    if !trimmed.ends_with('.') && !next_line_trimmed.is_empty() {
                         docs.push(self.arena.space());
                     }
-                } else if !trimmed.ends_with('.') && !trimmed.ends_with('{') {
+                } else if !trimmed.ends_with('.') {
                     // Check if original had trailing space
                     let original_had_trailing_space = line.ends_with(char::is_whitespace);
                     if original_had_trailing_space {
@@ -451,6 +459,115 @@ impl<'a> Formatter<'a> {
         if docs.is_empty() && has_newline {
             docs.push(self.arena.hardline());
             docs.push(self.arena.text(self.indent_str()));
+        }
+
+        self.arena.concat(docs)
+    }
+
+    /// Format a gap that contains structural delimiters like { or } or comma+newline.
+    /// These appear in match expressions where braces aren't separate tokens.
+    fn format_structural_gap(&mut self, gap: &'a str) -> Doc<'a> {
+        let has_newline = gap.contains('\n');
+        let mut docs: Vec<Doc<'a>> = Vec::new();
+
+        // Track brace depth changes in this gap
+        let opens = gap.chars().filter(|&c| c == '{').count();
+        let closes = gap.chars().filter(|&c| c == '}').count();
+
+        if !has_newline {
+            // Single-line: just emit with spaces
+            let trimmed = gap.trim();
+            docs.push(self.arena.space());
+            if !trimmed.is_empty() {
+                docs.push(self.arena.text(trimmed));
+                if !trimmed.ends_with('{') {
+                    docs.push(self.arena.space());
+                }
+            }
+            // Adjust indent level for single-line structural gaps
+            self.indent_level += opens;
+            self.indent_level = self.indent_level.saturating_sub(closes);
+            return self.arena.concat(docs);
+        }
+
+        // Multiline: preserve structure with proper indentation
+        let lines: Vec<&str> = gap.split('\n').collect();
+        let mut need_newline_before_next = false;
+
+        for (i, line) in lines.iter().enumerate() {
+            let trimmed = line.trim();
+            let is_first = i == 0;
+            let is_last = i == lines.len() - 1;
+
+            if trimmed.is_empty() {
+                if !is_first && !is_last {
+                    // Blank line in the middle - preserve it
+                    need_newline_before_next = true;
+                }
+                continue;
+            }
+
+            // Count braces in this line for indent tracking
+            let line_opens = trimmed.chars().filter(|&c| c == '{').count();
+            let line_closes = trimmed.chars().filter(|&c| c == '}').count();
+
+            // Handle content
+            if is_first {
+                // First line content comes after a token
+                if trimmed == "," {
+                    // Just a comma - append it directly
+                    docs.push(self.arena.text(","));
+                    need_newline_before_next = true;
+                } else if trimmed.ends_with('{') {
+                    docs.push(self.arena.space());
+                    docs.push(self.arena.text(trimmed));
+                    self.indent_level += line_opens;
+                    // Already emitting newline+indent, don't need another at end
+                    docs.push(self.arena.hardline());
+                    docs.push(self.arena.text(self.indent_str()));
+                    need_newline_before_next = false;
+                } else {
+                    docs.push(self.arena.space());
+                    docs.push(self.arena.text(trimmed));
+                    self.indent_level += line_opens;
+                    self.indent_level = self.indent_level.saturating_sub(line_closes);
+                    need_newline_before_next = true;
+                }
+            } else {
+                // Subsequent lines
+                if need_newline_before_next {
+                    docs.push(self.arena.hardline());
+                    need_newline_before_next = false;
+                }
+
+                if trimmed == "}" {
+                    // Closing brace - decrement indent first, then emit
+                    self.indent_level = self.indent_level.saturating_sub(1);
+                    docs.push(self.arena.text(self.indent_str()));
+                    docs.push(self.arena.text(trimmed));
+                } else {
+                    docs.push(self.arena.text(self.indent_str()));
+                    docs.push(self.arena.text(trimmed));
+                    self.indent_level += line_opens;
+                    self.indent_level = self.indent_level.saturating_sub(line_closes);
+                }
+
+                if !is_last {
+                    need_newline_before_next = true;
+                }
+            }
+        }
+
+        // If we still need a newline (gap ends with newline after content like comma)
+        if need_newline_before_next {
+            docs.push(self.arena.hardline());
+            docs.push(self.arena.text(self.indent_str()));
+        } else {
+            // If the gap ends with content (not a newline), add trailing space
+            let last_char = gap.chars().last();
+            if last_char.is_some_and(|c| c != '\n' && !c.is_whitespace() && c != '{') {
+                docs.push(self.arena.space());
+            }
         }
 
         self.arena.concat(docs)
@@ -500,6 +617,14 @@ impl<'a> Formatter<'a> {
         let has_close = trimmed.ends_with('}');
         let has_newline = token.text.contains('\n');
 
+        // Count braces to detect multi-brace tokens (e.g., ",\n}\n}" from match inside def)
+        let close_count = trimmed.chars().filter(|&c| c == '}').count();
+
+        // Handle multi-close tokens (common with match expressions)
+        if !has_open && close_count > 1 {
+            return self.format_multi_close(token.text);
+        }
+
         if has_open && has_close {
             self.format_complete_block(trimmed, has_newline)
         } else if has_open {
@@ -509,6 +634,47 @@ impl<'a> Formatter<'a> {
         } else {
             self.arena.text(token.text)
         }
+    }
+
+    /// Format a token that contains multiple closing braces (e.g., match inside a def).
+    fn format_multi_close(&mut self, text: &'a str) -> Doc<'a> {
+        let mut docs: Vec<Doc<'a>> = Vec::new();
+        let has_newline = text.contains('\n');
+
+        // Process the text line by line, handling each } properly
+        let lines: Vec<&str> = text.split('\n').collect();
+
+        for (i, line) in lines.iter().enumerate() {
+            let trimmed = line.trim();
+            let is_first = i == 0;
+
+            if trimmed.is_empty() {
+                continue;
+            }
+
+            // Handle content before braces (like commas)
+            // Find where the braces start
+            if let Some(brace_pos) = trimmed.find('}') {
+                let before = trimmed[..brace_pos].trim();
+                if !before.is_empty() {
+                    docs.push(self.arena.text(before));
+                }
+            }
+
+            // Count and emit closing braces in this line
+            let brace_count = trimmed.chars().filter(|&c| c == '}').count();
+            for j in 0..brace_count {
+                self.indent_level = self.indent_level.saturating_sub(1);
+                if has_newline && (j > 0 || !is_first) {
+                    let indent = self.indent_str();
+                    docs.push(self.arena.hardline());
+                    docs.push(self.arena.text(indent));
+                }
+                docs.push(self.arena.text("}"));
+            }
+        }
+
+        self.arena.concat(docs)
     }
 
     /// Format a complete block `{ ... }` that's in a single token.
