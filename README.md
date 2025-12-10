@@ -1,11 +1,10 @@
 # nufmt
 
-A code formatter for [Nushell](https://www.nushell.sh/).
+> [!CAUTION]
+> **Abandoned.** Use the official Nushell formatter: [`nufmt`](https://github.com/nushell/nufmt).
+> This project was an experiment to see what Claude Opus 4.5 could build.
 
-> [!WARNING]
-> This project was developed with AI assistance. Correctness is best-effort.
-> It's a personal tool built to scratch my own itch, not a polished upstream
-> contribution. Expect rough edges and shortcuts.
+A code formatter for [Nushell](https://www.nushell.sh/).
 
 ## Installation
 
