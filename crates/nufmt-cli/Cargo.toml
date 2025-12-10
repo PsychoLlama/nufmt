@@ -20,6 +20,7 @@ nufmt-core.workspace = true
 rayon.workspace = true
 serde.workspace = true
 similar = "2.7.0"
+thiserror = "2.0.17"
 toml.workspace = true
 
 [dev-dependencies]

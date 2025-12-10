@@ -9,6 +9,7 @@ use nu_command::add_shell_command_context;
 use nu_parser::{FlatShape, flatten_block, parse};
 use nu_protocol::{ParseError, Span, engine::StateWorkingSet};
 use pretty::{Arena, DocAllocator, DocBuilder};
+use thiserror::Error;
 
 use crate::{BracketSpacing, Config, QuoteStyle, TrailingComma};
 
@@ -31,9 +32,10 @@ pub struct SourceLocation {
 }
 
 /// Errors that can occur during formatting.
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum FormatError {
     /// The source code could not be parsed.
+    #[error("{}", format_parse_error(.message, .help, .location, .source_line))]
     ParseError {
         /// The error message.
         message: String,
@@ -72,38 +74,35 @@ impl FormatError {
     }
 }
 
-impl std::fmt::Display for FormatError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::ParseError {
-                message,
-                help,
-                location,
-                source_line,
-            } => {
-                if let Some(loc) = location {
-                    writeln!(f, "{}:{}: {message}", loc.line, loc.column)?;
-                } else {
-                    writeln!(f, "{message}")?;
-                }
+/// Format a parse error with source context for display.
+#[allow(clippy::ref_option)]
+fn format_parse_error(
+    message: &str,
+    help: &Option<String>,
+    location: &Option<SourceLocation>,
+    source_line: &Option<String>,
+) -> String {
+    use std::fmt::Write;
+    let mut output = String::new();
 
-                if let (Some(line), Some(loc)) = (source_line, location) {
-                    writeln!(f, "  |")?;
-                    writeln!(f, "{:>3} | {line}", loc.line)?;
-                    writeln!(f, "  | {:>width$}^", "", width = loc.column - 1)?;
-                }
-
-                if let Some(help_text) = help {
-                    write!(f, "  = help: {help_text}")?;
-                }
-
-                Ok(())
-            }
-        }
+    if let Some(loc) = location {
+        let _ = writeln!(output, "{}:{}: {message}", loc.line, loc.column);
+    } else {
+        let _ = writeln!(output, "{message}");
     }
-}
 
-impl std::error::Error for FormatError {}
+    if let (Some(line), Some(loc)) = (source_line, location) {
+        let _ = writeln!(output, "  |");
+        let _ = writeln!(output, "{:>3} | {line}", loc.line);
+        let _ = writeln!(output, "  | {:>width$}^", "", width = loc.column - 1);
+    }
+
+    if let Some(help_text) = help {
+        let _ = write!(output, "  = help: {help_text}");
+    }
+
+    output.trim_end().to_string()
+}
 
 /// Check if a parse error is a resolution error (module/file/command not found).
 const fn is_resolution_error(error: &ParseError) -> bool {

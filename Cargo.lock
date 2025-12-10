@@ -2476,6 +2476,7 @@ dependencies = [
  "serde",
  "similar",
  "tempfile",
+ "thiserror 2.0.17",
  "toml",
 ]
 
@@ -2490,6 +2491,7 @@ dependencies = [
  "nu-protocol",
  "pretty",
  "serde",
+ "thiserror 2.0.17",
 ]
 
 [[package]]

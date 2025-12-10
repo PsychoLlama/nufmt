@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use thiserror::Error;
 
 /// Preferred quote style for strings.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
@@ -36,19 +37,12 @@ pub enum TrailingComma {
 }
 
 /// Configuration validation error.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error("{message}")]
 pub struct ConfigError {
     /// Description of the validation error.
     pub message: String,
 }
-
-impl std::fmt::Display for ConfigError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl std::error::Error for ConfigError {}
 
 /// Formatting configuration options.
 #[derive(Debug, Clone, Deserialize)]

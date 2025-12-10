@@ -10,6 +10,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use nufmt_core::{Config, FormatError, debug_tokens, format_source};
 use rayon::prelude::*;
 use similar::TextDiff;
+use thiserror::Error;
 
 /// When to use colored output.
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
@@ -477,8 +478,8 @@ fn load_config(args: &Args) -> Result<Config, Error> {
 
     // Validate the final config (in case CLI args are out of range)
     config.validate().map_err(|e| Error::Config {
-        path: PathBuf::from("<cli>"),
-        source: e.to_string(),
+        path: "<cli>".to_string(),
+        message: e.to_string(),
     })?;
 
     Ok(config)
@@ -486,17 +487,18 @@ fn load_config(args: &Args) -> Result<Config, Error> {
 
 /// Load, parse, and validate a config file.
 fn load_config_file(path: &Path) -> Result<Config, Error> {
+    let path_str = path.display().to_string();
     let content = fs::read_to_string(path).map_err(|e| Error::Config {
-        path: path.to_path_buf(),
-        source: e.to_string(),
+        path: path_str.clone(),
+        message: e.to_string(),
     })?;
     let config: Config = toml::from_str(&content).map_err(|e| Error::Config {
-        path: path.to_path_buf(),
-        source: e.to_string(),
+        path: path_str.clone(),
+        message: e.to_string(),
     })?;
     config.validate().map_err(|e| Error::Config {
-        path: path.to_path_buf(),
-        source: e.to_string(),
+        path: path_str,
+        message: e.to_string(),
     })?;
     Ok(config)
 }
@@ -617,47 +619,20 @@ fn print_diff(name: &str, original: &str, formatted: &str) {
 }
 
 /// CLI error types.
-#[derive(Debug)]
+#[derive(Debug, Error)]
 enum Error {
     /// I/O error (file read/write, stdin/stdout).
-    Io(io::Error),
+    #[error("{0}")]
+    Io(#[from] io::Error),
     /// Formatting error (parse failure).
-    Format(FormatError),
+    #[error("{0}")]
+    Format(#[from] FormatError),
     /// Configuration file error.
-    Config { path: PathBuf, source: String },
+    #[error("config error in {path}: {message}")]
+    Config { path: String, message: String },
     /// Glob pattern error.
-    Glob(glob::PatternError),
-}
-
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Io(e) => write!(f, "{e}"),
-            Self::Format(e) => write!(f, "{e}"),
-            Self::Config { path, source } => {
-                write!(f, "config error in {}: {source}", path.display())
-            }
-            Self::Glob(e) => write!(f, "invalid glob pattern: {e}"),
-        }
-    }
-}
-
-impl From<io::Error> for Error {
-    fn from(e: io::Error) -> Self {
-        Self::Io(e)
-    }
-}
-
-impl From<FormatError> for Error {
-    fn from(e: FormatError) -> Self {
-        Self::Format(e)
-    }
-}
-
-impl From<glob::PatternError> for Error {
-    fn from(e: glob::PatternError) -> Self {
-        Self::Glob(e)
-    }
+    #[error("invalid glob pattern: {0}")]
+    Glob(#[from] glob::PatternError),
 }
 
 #[cfg(test)]
@@ -738,8 +713,8 @@ mod tests {
         assert!(io_err.to_string().contains("file not found"));
 
         let config_err = Error::Config {
-            path: PathBuf::from("/test/.nufmt.toml"),
-            source: "invalid syntax".to_string(),
+            path: "/test/.nufmt.toml".to_string(),
+            message: "invalid syntax".to_string(),
         };
         let msg = config_err.to_string();
         assert!(msg.contains(".nufmt.toml"));
