@@ -4,14 +4,23 @@
 //! automatically chooses between single-line and multiline layouts based on the
 //! configured `max_width`.
 
+mod closure;
+mod error;
+mod string;
+mod token;
+
+pub use error::{FormatError, SourceLocation};
+
 use nu_cmd_lang::create_default_context;
 use nu_command::add_shell_command_context;
 use nu_parser::{FlatShape, flatten_block, parse};
-use nu_protocol::{ParseError, Span, engine::StateWorkingSet};
+use nu_protocol::{ParseError, engine::StateWorkingSet};
 use pretty::{Arena, DocAllocator, DocBuilder};
-use thiserror::Error;
 
-use crate::{BracketSpacing, Config, QuoteStyle, TrailingComma};
+use crate::{BracketSpacing, Config, TrailingComma};
+use closure::parse_closure_params;
+use string::convert_string_quotes;
+use token::{Token, preprocess_tokens};
 
 /// Type alias for our document builder.
 type Doc<'a> = DocBuilder<'a, Arena<'a>>;
@@ -20,88 +29,6 @@ type Doc<'a> = DocBuilder<'a, Arena<'a>>;
 fn create_engine_state() -> nu_protocol::engine::EngineState {
     let engine_state = create_default_context();
     add_shell_command_context(engine_state)
-}
-
-/// A source location (line and column).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SourceLocation {
-    /// 1-indexed line number.
-    pub line: usize,
-    /// 1-indexed column number.
-    pub column: usize,
-}
-
-/// Errors that can occur during formatting.
-#[derive(Debug, Error)]
-pub enum FormatError {
-    /// The source code could not be parsed.
-    #[error("{}", format_parse_error(.message, .help, .location, .source_line))]
-    ParseError {
-        /// The error message.
-        message: String,
-        /// Optional help text for fixing the error.
-        help: Option<String>,
-        /// Source location of the error.
-        location: Option<SourceLocation>,
-        /// The source line containing the error.
-        source_line: Option<String>,
-    },
-}
-
-impl FormatError {
-    /// Create a parse error with context from the source code.
-    fn from_parse_error(error: &ParseError, source: &str) -> Self {
-        use miette::Diagnostic;
-
-        let span = error.span();
-        let location = if span.start < source.len() {
-            Some(offset_to_location(source, span.start))
-        } else {
-            None
-        };
-
-        let source_line =
-            location.map(|loc| source.lines().nth(loc.line - 1).unwrap_or("").to_string());
-
-        let help = error.help().map(|h| h.to_string());
-
-        Self::ParseError {
-            message: error.to_string(),
-            help,
-            location,
-            source_line,
-        }
-    }
-}
-
-/// Format a parse error with source context for display.
-#[allow(clippy::ref_option)]
-fn format_parse_error(
-    message: &str,
-    help: &Option<String>,
-    location: &Option<SourceLocation>,
-    source_line: &Option<String>,
-) -> String {
-    use std::fmt::Write;
-    let mut output = String::new();
-
-    if let Some(loc) = location {
-        let _ = writeln!(output, "{}:{}: {message}", loc.line, loc.column);
-    } else {
-        let _ = writeln!(output, "{message}");
-    }
-
-    if let (Some(line), Some(loc)) = (source_line, location) {
-        let _ = writeln!(output, "  |");
-        let _ = writeln!(output, "{:>3} | {line}", loc.line);
-        let _ = writeln!(output, "  | {:>width$}^", "", width = loc.column - 1);
-    }
-
-    if let Some(help_text) = help {
-        let _ = write!(output, "  = help: {help_text}");
-    }
-
-    output.trim_end().to_string()
 }
 
 /// Check if a parse error is a resolution error (module/file/command not found).
@@ -121,26 +48,6 @@ const fn is_resolution_error(error: &ParseError) -> bool {
             | ParseError::ExtraPositional(..)
             | ParseError::InputMismatch(..)
     )
-}
-
-/// Compute line and column from a byte offset in source.
-fn offset_to_location(source: &str, offset: usize) -> SourceLocation {
-    let mut line = 1;
-    let mut col = 1;
-
-    for (i, c) in source.char_indices() {
-        if i >= offset {
-            break;
-        }
-        if c == '\n' {
-            line += 1;
-            col = 1;
-        } else {
-            col += 1;
-        }
-    }
-
-    SourceLocation { line, column: col }
 }
 
 /// Debug token output for Nushell source code.
@@ -211,53 +118,12 @@ pub fn format_source(source: &str, config: &Config) -> Result<String, FormatErro
     Ok(formatted)
 }
 
-/// A token with its span and shape, plus the gap content before it.
-#[derive(Debug, Clone)]
-struct Token<'a> {
-    /// The text of the token.
-    text: &'a str,
-    /// The shape of the token.
-    shape: FlatShape,
-    /// The gap (whitespace/comments) before this token.
-    gap_before: &'a str,
-}
-
-/// Preprocess flattened tokens into a more convenient format.
-fn preprocess_tokens<'a>(source: &'a str, flattened: &[(Span, FlatShape)]) -> Vec<Token<'a>> {
-    let mut tokens = Vec::with_capacity(flattened.len());
-    let mut last_end = 0;
-
-    for (span, shape) in flattened {
-        if span.start < last_end || span.start > span.end || span.end > source.len() {
-            continue;
-        }
-
-        let gap_before = &source[last_end..span.start];
-        let text = &source[span.start..span.end];
-
-        tokens.push(Token {
-            text,
-            shape: shape.clone(),
-            gap_before,
-        });
-
-        last_end = span.end;
-    }
-
-    // Add a final synthetic token to capture trailing content
-    if last_end < source.len() {
-        tokens.push(Token {
-            text: "",
-            shape: FlatShape::Nothing,
-            gap_before: &source[last_end..],
-        });
-    }
-
-    tokens
-}
-
 /// Format tokens into a string using the pretty printing algorithm.
-fn format_tokens(source: &str, flattened: &[(Span, FlatShape)], config: &Config) -> String {
+fn format_tokens(
+    source: &str,
+    flattened: &[(nu_protocol::Span, FlatShape)],
+    config: &Config,
+) -> String {
     let tokens = preprocess_tokens(source, flattened);
     let arena = Arena::new();
     let mut formatter = Formatter::new(&arena, &tokens, config);
@@ -1135,62 +1001,6 @@ impl<'a> Formatter<'a> {
         let converted = convert_string_quotes(token.text, self.config.quote_style);
         self.arena.text(converted)
     }
-}
-
-/// Parse closure parameters from content after opening brace.
-fn parse_closure_params(content: &str) -> (Option<&str>, &str) {
-    let trimmed = content.trim_start();
-    if !trimmed.starts_with('|') {
-        return (None, content);
-    }
-
-    trimmed[1..].find('|').map_or((None, content), |close| {
-        let params_end = close + 2;
-        let params = &trimmed[..params_end];
-        let rest = &trimmed[params_end..];
-        (Some(params), rest)
-    })
-}
-
-/// Convert string quotes based on configured style.
-fn convert_string_quotes(token: &str, style: QuoteStyle) -> String {
-    match style {
-        QuoteStyle::Preserve => token.to_string(),
-        QuoteStyle::Double => to_double_quotes(token),
-        QuoteStyle::Single => to_single_quotes(token),
-    }
-}
-
-/// Convert a string to double quotes if possible.
-fn to_double_quotes(token: &str) -> String {
-    if token.starts_with('"') {
-        return token.to_string();
-    }
-
-    if let Some(content) = token.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')) {
-        if content.contains('"') || content.contains('\\') {
-            return token.to_string();
-        }
-        return format!("\"{content}\"");
-    }
-
-    token.to_string()
-}
-
-/// Convert a string to single quotes if possible.
-fn to_single_quotes(token: &str) -> String {
-    if token.starts_with('\'') {
-        return token.to_string();
-    }
-
-    if let Some(content) = token.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
-        if content.contains('\'') || content.contains('\\') {
-            return token.to_string();
-        }
-        return format!("'{content}'");
-    }
-
-    token.to_string()
 }
 
 #[cfg(test)]
