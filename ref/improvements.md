@@ -264,30 +264,28 @@ Areas with limited test coverage:
 
 ## NUFMT-015: Diff algorithm edge cases
 
-**Category:** Bug Risk
-**File:** `crates/nufmt-cli/src/main.rs:611-661`
+**Status:** RESOLVED (superseded by NUFMT-006)
 
-The custom diff algorithm has tests for basic edge cases but may produce unexpected output for:
-- Lines that appear multiple times
-- Large differences where context overlaps
-- Files with only whitespace differences
-
-Tests added in main.rs:883-937 cover panic prevention but not output correctness.
+Replaced custom diff with `similar` crate, which handles all edge cases correctly.
 
 ---
 
-## Priority Suggestions
+## Completed Tickets
 
-**High impact, low effort:**
-- NUFMT-006: Replace diff with `similar` crate
-- NUFMT-008: Fixture test macro
-- NUFMT-011: Add `thiserror`
+- **NUFMT-001:** Split format.rs into modules
+- **NUFMT-003:** Extract common estimation logic
+- **NUFMT-006:** Replace diff with `similar` crate
+- **NUFMT-008:** Fixture test macro
+- **NUFMT-009:** Cache engine state with LazyLock
+- **NUFMT-011:** Add thiserror for error types
+- **NUFMT-012:** Use owo-colors for ANSI codes
+- **NUFMT-013:** Optimize multiline collection detection
 
-**High impact, medium effort:**
-- NUFMT-001: Split format.rs into modules
-- NUFMT-003: Extract common estimation logic
+## Remaining (Low Priority)
 
-**Low priority (working as designed):**
-- NUFMT-002: CLI enum duplication (intentional separation)
-- NUFMT-005: Manual indent tracking (necessary workaround)
-- NUFMT-007: Parser limitation (upstream issue)
+- **NUFMT-002:** CLI enum duplication (intentional separation of concerns)
+- **NUFMT-004:** Complex gap processing (works correctly, could use more docs)
+- **NUFMT-005:** Manual indent tracking (necessary workaround for pretty crate)
+- **NUFMT-007:** Parser limitation (upstream nu-parser issue)
+- **NUFMT-010:** Stringly-typed bracket matching (minor code smell)
+- **NUFMT-014:** Test coverage gaps (ongoing improvement area)
