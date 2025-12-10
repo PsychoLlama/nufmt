@@ -683,43 +683,12 @@ impl<'a> Formatter<'a> {
 
     /// Estimate the length of a block by looking ahead.
     fn estimate_block_length(&self) -> (usize, bool) {
-        let mut length = 2;
-        let mut depth = 1;
-        let mut idx = self.index;
-        let mut has_newline = false;
-
-        while idx < self.tokens.len() && depth > 0 {
-            let t = &self.tokens[idx];
-
-            if t.gap_before.contains('\n') {
-                has_newline = true;
-            }
-
-            let gap_trimmed = t.gap_before.trim();
-            if !gap_trimmed.is_empty() {
-                length += gap_trimmed.len() + 1;
-            } else if !t.gap_before.is_empty() {
-                length += 1;
-            }
-
-            let trimmed = t.text.trim();
-            match t.shape {
-                FlatShape::Block | FlatShape::Closure => {
-                    if trimmed.starts_with('{') {
-                        depth += 1;
-                    }
-                    if trimmed.ends_with('}') {
-                        depth -= 1;
-                    }
-                }
-                _ => {}
-            }
-
-            length += trimmed.len();
-            idx += 1;
-        }
-
-        (length, has_newline)
+        self.estimate_delimited_length(
+            |shape| matches!(shape, FlatShape::Block | FlatShape::Closure),
+            |trimmed| trimmed.starts_with('{'),
+            |trimmed| trimmed.ends_with('}'),
+            |trimmed, _depth| trimmed.len(),
+        )
     }
 
     /// Format a parenthesized block.
@@ -915,6 +884,41 @@ impl<'a> Formatter<'a> {
 
     /// Estimate collection length by looking ahead.
     fn estimate_collection_length(&self) -> (usize, bool) {
+        self.estimate_delimited_length(
+            |shape| matches!(shape, FlatShape::Record | FlatShape::List),
+            |trimmed| trimmed == "{" || trimmed == "[",
+            |trimmed| trimmed == "}" || trimmed == "]",
+            |trimmed, depth| {
+                if trimmed == "{" || trimmed == "[" {
+                    1
+                } else if trimmed == "}" || trimmed == "]" {
+                    usize::from(depth > 1)
+                } else if trimmed == ":" || trimmed == "," {
+                    2
+                } else {
+                    trimmed.len()
+                }
+            },
+        )
+    }
+
+    /// Generic estimation of delimited content length.
+    ///
+    /// Walks through tokens, tracking depth via open/close predicates,
+    /// and accumulates length via the `token_len` callback.
+    fn estimate_delimited_length<F, O, C, L>(
+        &self,
+        shape_matches: F,
+        is_open: O,
+        is_close: C,
+        token_len: L,
+    ) -> (usize, bool)
+    where
+        F: Fn(&FlatShape) -> bool,
+        O: Fn(&str) -> bool,
+        C: Fn(&str) -> bool,
+        L: Fn(&str, usize) -> usize,
+    {
         let mut length = 2;
         let mut depth = 1;
         let mut idx = self.index;
@@ -935,26 +939,16 @@ impl<'a> Formatter<'a> {
             }
 
             let trimmed = t.text.trim();
-            match t.shape {
-                FlatShape::Record | FlatShape::List => {
-                    if trimmed == "{" || trimmed == "[" {
-                        depth += 1;
-                        length += 1;
-                    } else if trimmed == "}" || trimmed == "]" {
-                        depth -= 1;
-                        if depth > 0 {
-                            length += 1;
-                        }
-                    } else if trimmed == ":" || trimmed == "," {
-                        length += 2;
-                    } else {
-                        length += trimmed.len();
-                    }
+            if shape_matches(&t.shape) {
+                if is_open(trimmed) {
+                    depth += 1;
                 }
-                _ => {
-                    length += trimmed.len();
+                if is_close(trimmed) {
+                    depth -= 1;
                 }
             }
+
+            length += token_len(trimmed, depth);
             idx += 1;
         }
 
