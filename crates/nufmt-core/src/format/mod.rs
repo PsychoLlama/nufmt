@@ -154,10 +154,14 @@ struct Formatter<'a> {
     interp_depth: usize,
     /// Current indentation level.
     indent_level: usize,
+    /// Stack tracking if each nested collection is multiline.
+    /// Pushed on opening bracket, popped on closing bracket.
+    multiline_stack: Vec<bool>,
 }
 
 impl<'a> Formatter<'a> {
-    const fn new(arena: &'a Arena<'a>, tokens: &'a [Token<'a>], config: &'a Config) -> Self {
+    #[allow(clippy::missing_const_for_fn)] // Vec::new() in const requires nightly
+    fn new(arena: &'a Arena<'a>, tokens: &'a [Token<'a>], config: &'a Config) -> Self {
         Self {
             arena,
             tokens,
@@ -165,6 +169,7 @@ impl<'a> Formatter<'a> {
             index: 0,
             interp_depth: 0,
             indent_level: 0,
+            multiline_stack: Vec::new(),
         }
     }
 
@@ -789,26 +794,9 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    /// Check if we're inside a multiline collection by looking at context.
+    /// Check if we're inside a multiline collection using the tracked stack.
     fn is_in_multiline_collection(&self) -> bool {
-        // Look back for the opening bracket and check if it had a newline
-        let mut depth = 0;
-        for i in (0..self.index).rev() {
-            let t = &self.tokens[i];
-            let trimmed = t.text.trim();
-
-            if matches!(t.shape, FlatShape::Record | FlatShape::List) {
-                if trimmed == "}" || trimmed == "]" {
-                    depth += 1;
-                } else if trimmed == "{" || trimmed == "[" {
-                    if depth == 0 {
-                        return t.text.contains('\n') || t.gap_before.contains('\n');
-                    }
-                    depth -= 1;
-                }
-            }
-        }
-        false
+        self.multiline_stack.last().copied().unwrap_or(false)
     }
 
     /// Format opening bracket for a collection.
@@ -816,6 +804,9 @@ impl<'a> Formatter<'a> {
         let (estimated_len, inner_has_newline) = self.estimate_collection_length();
         let force_multiline =
             source_multiline || inner_has_newline || estimated_len > self.config.max_width;
+
+        // Track multiline state for this collection
+        self.multiline_stack.push(force_multiline);
 
         let open = self.arena.text(bracket);
 
@@ -833,6 +824,9 @@ impl<'a> Formatter<'a> {
 
     /// Format closing bracket for a collection.
     fn format_collection_close(&mut self, bracket: &'a str, source_multiline: bool) -> Doc<'a> {
+        // Pop multiline state for this collection
+        self.multiline_stack.pop();
+
         if source_multiline {
             self.indent_level = self.indent_level.saturating_sub(1);
             let indent = self.indent_str();
@@ -858,6 +852,9 @@ impl<'a> Formatter<'a> {
         trimmed: &'a str,
         source_multiline: bool,
     ) -> Doc<'a> {
+        // Pop multiline state for this collection
+        self.multiline_stack.pop();
+
         let bracket = if trimmed.contains('}') { '}' } else { ']' };
         let prefix = trimmed.trim_end_matches(bracket);
 
