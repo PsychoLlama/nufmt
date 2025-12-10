@@ -8,6 +8,7 @@ use std::{
 
 use clap::{Parser, Subcommand, ValueEnum};
 use nufmt_core::{Config, FormatError, debug_tokens, format_source};
+use owo_colors::OwoColorize;
 use rayon::prelude::*;
 use similar::TextDiff;
 use thiserror::Error;
@@ -90,15 +91,6 @@ impl From<TrailingCommaArg> for nufmt_core::TrailingComma {
             TrailingCommaArg::Never => Self::Never,
         }
     }
-}
-
-/// ANSI color codes for terminal output.
-mod color {
-    pub const RESET: &str = "\x1b[0m";
-    pub const GREEN: &str = "\x1b[32m";
-    pub const YELLOW: &str = "\x1b[33m";
-    pub const RED: &str = "\x1b[31m";
-    pub const BOLD: &str = "\x1b[1m";
 }
 
 /// Result of formatting a single file.
@@ -282,24 +274,12 @@ fn print_file_result(path: &Path, result: &FormatResult, args: &Args, use_color:
         FormatResult::Changed => {
             if args.check {
                 if use_color {
-                    eprintln!(
-                        "{}{}!{} {} (would reformat)",
-                        color::BOLD,
-                        color::YELLOW,
-                        color::RESET,
-                        path_str
-                    );
+                    eprintln!("{} {path_str} (would reformat)", "!".yellow().bold());
                 } else {
                     eprintln!("! {path_str} (would reformat)");
                 }
             } else if use_color {
-                eprintln!(
-                    "{}{}✓{} {}",
-                    color::BOLD,
-                    color::GREEN,
-                    color::RESET,
-                    path_str
-                );
+                eprintln!("{} {path_str}", "✓".green().bold());
             } else {
                 eprintln!("✓ {path_str}");
             }
@@ -309,14 +289,7 @@ fn print_file_result(path: &Path, result: &FormatResult, args: &Args, use_color:
         }
         FormatResult::Error(msg) => {
             if use_color {
-                eprintln!(
-                    "{}{}✗{} {}: {}",
-                    color::BOLD,
-                    color::RED,
-                    color::RESET,
-                    path_str,
-                    msg
-                );
+                eprintln!("{} {path_str}: {msg}", "✗".red().bold());
             } else {
                 eprintln!("✗ {path_str}: {msg}");
             }
@@ -338,12 +311,8 @@ fn print_summary(args: &Args, total: usize, changed: usize, errors: usize, use_c
         if changed == 0 && errors == 0 {
             if use_color {
                 eprintln!(
-                    "\n{}{}✓{} All {} {} formatted correctly",
-                    color::BOLD,
-                    color::GREEN,
-                    color::RESET,
-                    total,
-                    files_word
+                    "\n{} All {total} {files_word} formatted correctly",
+                    "✓".green().bold()
                 );
             } else {
                 eprintln!("\n✓ All {total} {files_word} formatted correctly");
@@ -366,10 +335,8 @@ fn print_summary(args: &Args, total: usize, changed: usize, errors: usize, use_c
         if changed == 0 && errors == 0 {
             if use_color {
                 eprintln!(
-                    "\n{}{}✓{} All {total} {files_word} already formatted",
-                    color::BOLD,
-                    color::GREEN,
-                    color::RESET,
+                    "\n{} All {total} {files_word} already formatted",
+                    "✓".green().bold()
                 );
             } else {
                 eprintln!("\n✓ All {total} {files_word} already formatted");

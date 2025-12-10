@@ -17,6 +17,7 @@ path = "src/main.rs"
 clap.workspace = true
 glob.workspace = true
 nufmt-core.workspace = true
+owo-colors = "4.2.3"
 rayon.workspace = true
 serde.workspace = true
 similar = "2.7.0"
