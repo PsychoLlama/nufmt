@@ -1133,4 +1133,100 @@ mod tests {
             "Should preserve closure params: {result}"
         );
     }
+
+    #[test]
+    fn test_match_expression() {
+        let source = "match $x {\n1 => \"one\"\n2 => \"two\"\n}";
+        let config = Config::default();
+        let result = format_source(source, &config).unwrap();
+        assert!(result.contains("match"), "Should preserve match: {result}");
+        assert!(result.contains("=>"), "Should preserve arrows: {result}");
+    }
+
+    #[test]
+    fn test_nested_braces() {
+        // Test nested blocks (e.g., def with match inside)
+        let source = "def foo [] {\nif true {\necho hi\n}\n}";
+        let config = Config::default();
+        let result = format_source(source, &config).unwrap();
+        assert!(result.ends_with("}\n"), "Should end with closing brace");
+        // Should have proper indentation
+        assert!(
+            result.contains("  if true"),
+            "Inner block should be indented"
+        );
+    }
+
+    #[test]
+    fn test_empty_block() {
+        let source = "if true {}";
+        let config = Config::default();
+        let result = format_source(source, &config).unwrap();
+        assert!(
+            result.contains("{}") || result.contains("{ }"),
+            "Empty block: {result}"
+        );
+    }
+
+    #[test]
+    fn test_compact_bracket_spacing() {
+        let source = "{ a: 1 }";
+        let config = Config {
+            bracket_spacing: BracketSpacing::Compact,
+            ..Default::default()
+        };
+        let result = format_source(source, &config).unwrap();
+        assert_eq!(result, "{a: 1}\n");
+    }
+
+    #[test]
+    fn test_trailing_comma_never() {
+        let source = "[\n1\n2\n]";
+        let config = Config {
+            trailing_comma: TrailingComma::Never,
+            ..Default::default()
+        };
+        let result = format_source(source, &config).unwrap();
+        // Should not have trailing commas
+        assert!(
+            !result.contains(",\n]"),
+            "Should not have trailing comma: {result}"
+        );
+    }
+
+    #[test]
+    fn test_custom_indent_width() {
+        let source = "if true {\necho hi\n}";
+        let config = Config {
+            indent_width: 4,
+            ..Default::default()
+        };
+        let result = format_source(source, &config).unwrap();
+        assert!(
+            result.contains("    echo"),
+            "Should use 4-space indent: {result}"
+        );
+    }
+
+    #[test]
+    fn test_comment_in_block() {
+        let source = "if true {\n# comment\necho hi\n}";
+        let config = Config::default();
+        let result = format_source(source, &config).unwrap();
+        assert!(
+            result.contains("# comment"),
+            "Should preserve comment: {result}"
+        );
+    }
+
+    #[test]
+    fn test_inline_comment() {
+        let source = "let x = 1 # inline comment";
+        let config = Config::default();
+        let result = format_source(source, &config).unwrap();
+        assert!(
+            result.contains("# inline comment"),
+            "Should preserve inline comment: {result}"
+        );
+    }
 }
