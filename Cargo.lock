@@ -2467,7 +2467,7 @@ dependencies = [
 
 [[package]]
 name = "nufmt-cli"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "clap",
  "glob",
@@ -2483,7 +2483,7 @@ dependencies = [
 
 [[package]]
 name = "nufmt-core"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "clap",
  "miette",
