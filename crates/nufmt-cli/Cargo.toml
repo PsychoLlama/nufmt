@@ -19,6 +19,7 @@ glob.workspace = true
 nufmt-core.workspace = true
 rayon.workspace = true
 serde.workspace = true
+similar = "2.7.0"
 toml.workspace = true
 
 [dev-dependencies]

@@ -9,6 +9,7 @@ use std::{
 use clap::{Parser, Subcommand, ValueEnum};
 use nufmt_core::{Config, FormatError, debug_tokens, format_source};
 use rayon::prelude::*;
+use similar::TextDiff;
 
 /// When to use colored output.
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
@@ -609,56 +610,10 @@ fn format_file(path: &Path, args: &Args, config: &Config) -> Result<bool, Error>
 
 /// Print a unified diff between original and formatted content.
 fn print_diff(name: &str, original: &str, formatted: &str) {
-    eprintln!("--- {name}");
-    eprintln!("+++ {name} (formatted)");
-
-    let orig_lines: Vec<&str> = original.lines().collect();
-    let fmt_lines: Vec<&str> = formatted.lines().collect();
-
-    let mut i = 0;
-    let mut j = 0;
-
-    while i < orig_lines.len() || j < fmt_lines.len() {
-        // Find next difference
-        if i < orig_lines.len() && j < fmt_lines.len() && orig_lines[i] == fmt_lines[j] {
-            i += 1;
-            j += 1;
-            continue;
-        }
-
-        // Found a difference - print context
-        let context_start = i.saturating_sub(1);
-
-        // Print context line before if available
-        if context_start < i && context_start < orig_lines.len() {
-            eprintln!("@@ -{} +{} @@", context_start + 1, j.saturating_sub(1) + 1);
-            eprintln!(" {}", orig_lines[context_start]);
-        } else {
-            eprintln!("@@ -{} +{} @@", i + 1, j + 1);
-        }
-
-        // Print differing lines
-        while i < orig_lines.len()
-            && (j >= fmt_lines.len() || orig_lines[i] != fmt_lines[j])
-            && (j >= fmt_lines.len()
-                || i + 1 >= orig_lines.len()
-                || orig_lines[i + 1] != fmt_lines[j])
-        {
-            eprintln!("-{}", orig_lines[i]);
-            i += 1;
-        }
-
-        while j < fmt_lines.len()
-            && (i >= orig_lines.len() || orig_lines[i] != fmt_lines[j])
-            && (i >= orig_lines.len()
-                || j + 1 >= fmt_lines.len()
-                || orig_lines[i] != fmt_lines[j + 1])
-        {
-            eprintln!("+{}", fmt_lines[j]);
-            j += 1;
-        }
-    }
-    eprintln!();
+    let diff = TextDiff::from_lines(original, formatted);
+    let mut unified = diff.unified_diff();
+    unified.header(name, &format!("{name} (formatted)"));
+    eprint!("{unified}");
 }
 
 /// CLI error types.
@@ -878,61 +833,5 @@ mod tests {
 
         let would_change = format_file(&file_path, &args, &config).unwrap();
         assert!(!would_change);
-    }
-
-    // Diff algorithm edge case tests (NUFMT-015)
-
-    #[test]
-    fn test_print_diff_identical_content() {
-        // Should not panic when content is identical (no diff output)
-        print_diff("test", "line1\nline2\n", "line1\nline2\n");
-    }
-
-    #[test]
-    fn test_print_diff_empty_original() {
-        // Should not panic when original is empty
-        print_diff("test", "", "new content\n");
-    }
-
-    #[test]
-    fn test_print_diff_empty_formatted() {
-        // Should not panic when formatted is empty
-        print_diff("test", "old content\n", "");
-    }
-
-    #[test]
-    fn test_print_diff_both_empty() {
-        // Should not panic when both are empty
-        print_diff("test", "", "");
-    }
-
-    #[test]
-    fn test_print_diff_single_line() {
-        // Should not panic with single line content
-        print_diff("test", "old", "new");
-    }
-
-    #[test]
-    fn test_print_diff_large_insertion() {
-        // Should not panic with many new lines
-        let original = "line1\n";
-        let formatted = "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10\n";
-        print_diff("test", original, formatted);
-    }
-
-    #[test]
-    fn test_print_diff_large_deletion() {
-        // Should not panic with many deleted lines
-        let original = "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10\n";
-        let formatted = "line1\n";
-        print_diff("test", original, formatted);
-    }
-
-    #[test]
-    fn test_print_diff_complete_replacement() {
-        // Should not panic when all lines change
-        let original = "a\nb\nc\n";
-        let formatted = "x\ny\nz\n";
-        print_diff("test", original, formatted);
     }
 }
