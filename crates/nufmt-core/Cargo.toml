@@ -9,7 +9,12 @@ repository.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[features]
+default = []
+cli = ["clap"]
+
 [dependencies]
+clap = { version = "4.5", features = ["derive"], optional = true }
 miette.workspace = true
 nu-cmd-lang.workspace = true
 nu-command.workspace = true

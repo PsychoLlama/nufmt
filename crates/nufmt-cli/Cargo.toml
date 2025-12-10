@@ -16,7 +16,7 @@ path = "src/main.rs"
 [dependencies]
 clap.workspace = true
 glob.workspace = true
-nufmt-core.workspace = true
+nufmt-core = { workspace = true, features = ["cli"] }
 owo-colors = "4.2.3"
 rayon.workspace = true
 serde.workspace = true

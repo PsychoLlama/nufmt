@@ -1,8 +1,12 @@
 use serde::Deserialize;
 use thiserror::Error;
 
+#[cfg(feature = "cli")]
+use clap::ValueEnum;
+
 /// Preferred quote style for strings.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[cfg_attr(feature = "cli", derive(ValueEnum))]
 #[serde(rename_all = "lowercase")]
 pub enum QuoteStyle {
     /// Preserve existing quote style.
@@ -16,6 +20,7 @@ pub enum QuoteStyle {
 
 /// Whether to add spaces inside brackets/braces.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[cfg_attr(feature = "cli", derive(ValueEnum))]
 #[serde(rename_all = "lowercase")]
 pub enum BracketSpacing {
     /// Add spaces inside brackets: `{ a: 1 }`, `[ 1, 2 ]` (default).
@@ -27,6 +32,7 @@ pub enum BracketSpacing {
 
 /// Whether to add trailing commas in multiline collections.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[cfg_attr(feature = "cli", derive(ValueEnum))]
 #[serde(rename_all = "lowercase")]
 pub enum TrailingComma {
     /// Always add trailing commas in multiline collections (default).

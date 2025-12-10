@@ -2485,6 +2485,7 @@ dependencies = [
 name = "nufmt-core"
 version = "0.8.0"
 dependencies = [
+ "clap",
  "miette",
  "nu-cmd-lang",
  "nu-command",

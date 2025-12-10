@@ -7,7 +7,9 @@ use std::{
 };
 
 use clap::{Parser, Subcommand, ValueEnum};
-use nufmt_core::{Config, FormatError, debug_tokens, format_source};
+use nufmt_core::{
+    BracketSpacing, Config, FormatError, QuoteStyle, TrailingComma, debug_tokens, format_source,
+};
 use owo_colors::OwoColorize;
 use rayon::prelude::*;
 use similar::TextDiff;
@@ -32,63 +34,6 @@ impl ColorChoice {
             Self::Auto => std::io::stderr().is_terminal(),
             Self::Always => true,
             Self::Never => false,
-        }
-    }
-}
-
-/// Quote style for CLI arguments.
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum QuoteStyleArg {
-    /// Keep existing quote style.
-    Preserve,
-    /// Prefer double quotes.
-    Double,
-    /// Prefer single quotes.
-    Single,
-}
-
-impl From<QuoteStyleArg> for nufmt_core::QuoteStyle {
-    fn from(arg: QuoteStyleArg) -> Self {
-        match arg {
-            QuoteStyleArg::Preserve => Self::Preserve,
-            QuoteStyleArg::Double => Self::Double,
-            QuoteStyleArg::Single => Self::Single,
-        }
-    }
-}
-
-/// Bracket spacing style for CLI arguments.
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum BracketSpacingArg {
-    /// Add spaces inside brackets: `{ a: 1 }`, `[ 1, 2 ]`.
-    Spaced,
-    /// No spaces inside brackets: `{a: 1}`, `[1, 2]`.
-    Compact,
-}
-
-impl From<BracketSpacingArg> for nufmt_core::BracketSpacing {
-    fn from(arg: BracketSpacingArg) -> Self {
-        match arg {
-            BracketSpacingArg::Spaced => Self::Spaced,
-            BracketSpacingArg::Compact => Self::Compact,
-        }
-    }
-}
-
-/// Trailing comma style for CLI arguments.
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum TrailingCommaArg {
-    /// Always add trailing commas in multiline collections.
-    Always,
-    /// Never add trailing commas.
-    Never,
-}
-
-impl From<TrailingCommaArg> for nufmt_core::TrailingComma {
-    fn from(arg: TrailingCommaArg) -> Self {
-        match arg {
-            TrailingCommaArg::Always => Self::Always,
-            TrailingCommaArg::Never => Self::Never,
         }
     }
 }
@@ -140,15 +85,15 @@ struct Args {
 
     /// Preferred quote style for strings
     #[arg(long, value_enum)]
-    quote_style: Option<QuoteStyleArg>,
+    quote_style: Option<QuoteStyle>,
 
     /// Spacing inside brackets and braces
     #[arg(long, value_enum)]
-    bracket_spacing: Option<BracketSpacingArg>,
+    bracket_spacing: Option<BracketSpacing>,
 
     /// Whether to add trailing commas in multiline collections
     #[arg(long, value_enum)]
-    trailing_comma: Option<TrailingCommaArg>,
+    trailing_comma: Option<TrailingComma>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -434,13 +379,13 @@ fn load_config(args: &Args) -> Result<Config, Error> {
         config.max_width = max_width;
     }
     if let Some(quote_style) = args.quote_style {
-        config.quote_style = quote_style.into();
+        config.quote_style = quote_style;
     }
     if let Some(bracket_spacing) = args.bracket_spacing {
-        config.bracket_spacing = bracket_spacing.into();
+        config.bracket_spacing = bracket_spacing;
     }
     if let Some(trailing_comma) = args.trailing_comma {
-        config.trailing_comma = trailing_comma.into();
+        config.trailing_comma = trailing_comma;
     }
 
     // Validate the final config (in case CLI args are out of range)
