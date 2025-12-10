@@ -202,6 +202,19 @@ impl<'a> Formatter<'a> {
     }
 
     /// Format a gap (whitespace and comments between tokens).
+    ///
+    /// Gaps are the content between parsed tokens - typically whitespace and comments.
+    /// This function handles several cases:
+    ///
+    /// 1. **Empty gaps**: Return nil
+    /// 2. **Single-line whitespace**: Collapse to a single space
+    /// 3. **Single-line with content**: Wrap content (like `=`) with spaces
+    /// 4. **Structural gaps**: Delegate to `format_structural_gap` for braces/commas
+    /// 5. **Multiline with comments**: Preserve comment positions and blank lines
+    /// 6. **Multiline with other content**: Handle operators spanning lines
+    ///
+    /// The function tracks whether newlines have been emitted to avoid duplicates
+    /// and preserves blank line separators from the original source.
     fn format_gap(&mut self, gap: &'a str) -> Doc<'a> {
         if gap.is_empty() {
             return self.arena.nil();
@@ -338,8 +351,24 @@ impl<'a> Formatter<'a> {
         self.arena.concat(docs)
     }
 
-    /// Format a gap that contains structural delimiters like { or } or comma+newline.
-    /// These appear in match expressions where braces aren't separate tokens.
+    /// Format a gap that contains structural delimiters like `{`, `}`, or comma+newline.
+    ///
+    /// This handles match expressions where braces aren't separate tokens, e.g.:
+    /// ```nu
+    /// match $x {
+    ///     1 => "one",
+    ///     2 => "two",
+    /// }
+    /// ```
+    ///
+    /// The gap between `$x` and the first arm contains `{\n    `, which must be
+    /// processed to maintain proper indentation.
+    ///
+    /// Key behaviors:
+    /// - Tracks brace depth and adjusts `indent_level` accordingly
+    /// - Emits closing braces with reduced indentation
+    /// - Preserves blank lines between match arms
+    /// - Single-line structural gaps get spaces around content
     fn format_structural_gap(&mut self, gap: &'a str) -> Doc<'a> {
         let has_newline = gap.contains('\n');
         let mut docs: Vec<Doc<'a>> = Vec::new();
